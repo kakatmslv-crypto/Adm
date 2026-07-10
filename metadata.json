@@ -1,0 +1,10 @@
+{
+  "name": "Remix: School Library Management System",
+  "description": "A comprehensive Library Management System for Hun Sen Andoung Meas High School featuring book tracking, student records, barcode scanning, borrowing and returning, and reports.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
