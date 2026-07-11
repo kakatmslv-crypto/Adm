@@ -5,7 +5,8 @@ import { generateStudentID } from '../utils/barcode';
 import { 
   Search, Plus, Edit2, Trash2, X, Save, UserPlus, Phone, Award,
   ChevronDown, ChevronUp, BookOpen, Clock, CheckCircle2, AlertCircle, Calendar,
-  QrCode, Printer, Filter, History, Loader2, Download, RefreshCw, Mail, Camera, Lock
+  QrCode, Printer, Filter, History, Loader2, Download, RefreshCw, Mail, Camera, Lock,
+  Upload
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import QRCode from 'qrcode';
@@ -119,6 +120,246 @@ export default function StudentManagement({
   const [importClassGrade, setImportClassGrade] = useState('10A');
   const [importError, setImportError] = useState<string | null>(null);
   const [importTab, setImportTab] = useState<'all' | 'new' | 'sync'>('all');
+
+  // CSV Bulk Import State
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [parsedStudents, setParsedStudents] = useState<any[]>([]);
+  const [csvParsingError, setCsvParsingError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  // CSV Parser Helper
+  const parseCSV = (text: string): string[][] => {
+    const lines: string[][] = [];
+    let row: string[] = [];
+    let inQuotes = false;
+    let currentValue = "";
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (inQuotes) {
+        if (char === '"') {
+          if (nextChar === '"') {
+            currentValue += '"';
+            i++; // Skip next quote
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          currentValue += char;
+        }
+      } else {
+        if (char === '"') {
+          inQuotes = true;
+        } else if (char === ',') {
+          row.push(currentValue.trim());
+          currentValue = "";
+        } else if (char === '\n' || char === '\r') {
+          row.push(currentValue.trim());
+          currentValue = "";
+          if (row.length > 0 && (row.length > 1 || row[0] !== "")) {
+            lines.push(row);
+          }
+          row = [];
+          if (char === '\r' && nextChar === '\n') {
+            i++; // Skip the line feed
+          }
+        } else {
+          currentValue += char;
+        }
+      }
+    }
+
+    if (currentValue !== "" || row.length > 0) {
+      row.push(currentValue.trim());
+      if (row.length > 0 && (row.length > 1 || row[0] !== "")) {
+        lines.push(row);
+      }
+    }
+
+    return lines;
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const headers = language === 'kh'
+      ? 'ឈ្មោះសិស្ស,ភេទ,ថ្នាក់,លេខទូរស័ព្ទ,អ៊ីមែល,អត្តសញ្ញាណសិស្ស\nJohn Doe,M,12A,012345678,john@school.com,STU-12A-099\nJane Smith,F,11B,098765432,jane@school.com,STU-11B-055'
+      : 'Full Name,Gender,Class,Phone,Email,Student ID\nJohn Doe,Male,12A,012345678,john.doe@school.com,STU-12A-099\nJane Smith,Female,11B,098765432,jane.smith@school.com,\nSok Mean,F,10C,088123456,,STU-10C-101';
+    
+    const blob = new Blob([headers], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'student_bulk_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCsvFileSelect = (file: File) => {
+    setCsvFile(file);
+    setCsvParsingError(null);
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        if (!text) {
+          throw new Error(language === 'kh' ? 'ឯកសារគ្មានទិន្នន័យឡើយ!' : 'File is empty!');
+        }
+        
+        const rows = parseCSV(text);
+        if (rows.length < 2) {
+          throw new Error(language === 'kh' ? 'ឯកសារត្រូវមានយ៉ាងហោចណាស់ជួរក្បាល និងទិន្នន័យមួយជួរ!' : 'CSV must contain a header row and at least one data row!');
+        }
+        
+        const headers = rows[0].map(h => h.toLowerCase().replace(/['"\r\n]/g, '').trim());
+        
+        let nameIdx = -1;
+        let genderIdx = -1;
+        let classGradeIdx = -1;
+        let phoneNumberIdx = -1;
+        let emailIdx = -1;
+        let studentIdIdx = -1;
+        
+        headers.forEach((header, index) => {
+          if (header.includes('name') || header.includes('fullname') || header.includes('ឈ្មោះ') || header.includes('full name')) {
+            nameIdx = index;
+          } else if (header.includes('gender') || header.includes('sex') || header.includes('ភេទ')) {
+            genderIdx = index;
+          } else if (header.includes('class') || header.includes('grade') || header.includes('ថ្នាក់') || header.includes('classgrade')) {
+            classGradeIdx = index;
+          } else if (header.includes('phone') || header.includes('tel') || header.includes('mobile') || header.includes('contact') || header.includes('ទូរស័ព្ទ')) {
+            phoneNumberIdx = index;
+          } else if (header.includes('email') || header.includes('mail') || header.includes('អ៊ីមែល')) {
+            emailIdx = index;
+          } else if (header.includes('studentid') || header.includes('student id') || header.includes('id') || header.includes('អត្តសញ្ញាណ')) {
+            studentIdIdx = index;
+          }
+        });
+        
+        // Fallbacks if headers are not explicitly matched
+        if (nameIdx === -1) nameIdx = 0;
+        if (genderIdx === -1) genderIdx = 1;
+        if (classGradeIdx === -1) classGradeIdx = 2;
+        if (phoneNumberIdx === -1) phoneNumberIdx = 3;
+        if (emailIdx === -1) emailIdx = 4;
+        if (studentIdIdx === -1) studentIdIdx = 5;
+        
+        const dataRows = rows.slice(1);
+        const parsed = dataRows.map((row) => {
+          // Safe access helper
+          const getVal = (idx: number) => {
+            if (idx !== -1 && idx < row.length) {
+              return row[idx].replace(/['"\r\n]/g, '').trim();
+            }
+            return '';
+          };
+          
+          const rawName = getVal(nameIdx);
+          const rawGender = getVal(genderIdx).toUpperCase();
+          const rawClassGrade = getVal(classGradeIdx);
+          const rawPhone = getVal(phoneNumberIdx);
+          const rawEmail = getVal(emailIdx);
+          const rawStudentId = getVal(studentIdIdx);
+          
+          // Normalize Gender
+          let finalGender: 'M' | 'F' = 'M';
+          if (rawGender.startsWith('F') || rawGender.includes('FEMALE') || rawGender.includes('ស្រី') || rawGender === 'GIRL') {
+            finalGender = 'F';
+          } else if (rawGender.startsWith('M') || rawGender.includes('MALE') || rawGender.includes('ប្រុស') || rawGender === 'BOY') {
+            finalGender = 'M';
+          } else {
+            finalGender = 'M'; // Default fallback
+          }
+          
+          // Validation
+          const errors: string[] = [];
+          if (!rawName) {
+            errors.push(language === 'kh' ? 'ខ្វះឈ្មោះសិស្ស' : 'Name is required');
+          }
+          if (!rawClassGrade) {
+            errors.push(language === 'kh' ? 'ខ្វះថ្នាក់រៀន' : 'Class/Grade is required');
+          }
+          
+          return {
+            name: rawName,
+            gender: finalGender,
+            classGrade: rawClassGrade,
+            phoneNumber: rawPhone || 'N/A',
+            email: rawEmail || undefined,
+            studentId: rawStudentId || undefined,
+            errors,
+            isValid: errors.length === 0,
+          };
+        });
+        
+        setParsedStudents(parsed);
+      } catch (err: any) {
+        setCsvParsingError(err.message || 'Error parsing CSV file');
+        setParsedStudents([]);
+      }
+    };
+    
+    reader.onerror = () => {
+      setCsvParsingError(language === 'kh' ? 'កំហុសក្នុងការអានឯកសារ!' : 'Error reading file!');
+    };
+    
+    reader.readAsText(file);
+  };
+
+  const handleConfirmCsvImport = () => {
+    const validParsed = parsedStudents.filter(s => s.isValid);
+    if (validParsed.length === 0) {
+      if (onShowError) {
+        onShowError(language === 'kh' ? 'គ្មានទិន្នន័យសិស្សត្រឹមត្រូវសម្រាប់នាំចូលទេ!' : 'No valid student records found to import!');
+      }
+      return;
+    }
+    
+    let importedCount = 0;
+    const gradeCounts: { [grade: string]: number } = {};
+    
+    validParsed.forEach((parsed, index) => {
+      const classKey = parsed.classGrade.toUpperCase();
+      
+      if (gradeCounts[classKey] === undefined) {
+        gradeCounts[classKey] = students.filter(s => s.classGrade.toUpperCase() === classKey).length;
+      }
+      
+      const count = gradeCounts[classKey];
+      gradeCounts[classKey] = count + 1;
+      
+      const finalStudentId = parsed.studentId || generateStudentID(parsed.classGrade, count);
+      
+      const newStudent: Student = {
+        id: `stu-${Date.now()}-${index}-${Math.floor(Math.random() * 1000)}`,
+        studentId: finalStudentId,
+        name: parsed.name,
+        gender: parsed.gender,
+        classGrade: classKey,
+        phoneNumber: parsed.phoneNumber,
+        email: parsed.email,
+      };
+      
+      onAddStudent(newStudent);
+      importedCount++;
+    });
+    
+    if (onShowSuccess) {
+      onShowSuccess(
+        language === 'kh'
+          ? `បាននាំចូលសិស្សចំនួន ${importedCount} នាក់ដោយជោគជ័យ!`
+          : `Successfully imported ${importedCount} student(s) from CSV!`
+      );
+    }
+    
+    setIsCsvModalOpen(false);
+    setCsvFile(null);
+    setParsedStudents([]);
+    setCsvParsingError(null);
+  };
 
   const fetchGoogleContacts = async (token: string) => {
     setIsFetchingContacts(true);
@@ -266,6 +507,16 @@ export default function StudentManagement({
       setStudentQrCodeUrl('');
     }
   }, [qrViewStudent]);
+
+  const handleDownloadQrCode = () => {
+    if (!qrViewStudent || !studentQrCodeUrl) return;
+    const link = document.createElement('a');
+    link.href = studentQrCodeUrl;
+    link.download = `student-qr-${qrViewStudent.studentId}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const handlePrintStudentCard = (student: Student) => {
     const printWindow = window.open('', '_blank');
@@ -520,6 +771,21 @@ export default function StudentManagement({
           >
             <Download className="w-4 h-4" />
             {language === 'kh' ? 'នាំចូលពី Contacts' : 'Import from Google Contacts'}
+          </button>
+
+          <button
+            id="import-csv-btn"
+            type="button"
+            onClick={() => {
+              setIsCsvModalOpen(true);
+              setCsvFile(null);
+              setParsedStudents([]);
+              setCsvParsingError(null);
+            }}
+            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-2xl shadow-md hover:shadow-lg hover:shadow-indigo-500/10 transition duration-150 cursor-pointer w-full md:w-auto justify-center"
+          >
+            <Upload className="w-4 h-4" />
+            {language === 'kh' ? 'នាំចូលពី CSV' : 'Bulk Import CSV'}
           </button>
 
           <button
@@ -795,6 +1061,16 @@ export default function StudentManagement({
                                       >
                                         <Camera className="w-3.5 h-3.5 text-blue-500" />
                                         <span>{language === 'kh' ? 'ថតរូបសិស្ស' : 'Take Photo'}</span>
+                                      </button>
+
+                                      {/* QR Code / Card View Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => setQrViewStudent(student)}
+                                        className="mt-2 ml-2 inline-flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 rounded-xl px-2.5 py-1 text-[10px] font-black text-indigo-600 hover:text-indigo-700 transition cursor-pointer shadow-sm animate-fade-in"
+                                      >
+                                        <QrCode className="w-3.5 h-3.5 text-indigo-500" />
+                                        <span>{language === 'kh' ? 'កូដ QR សិស្ស' : 'Student QR/Card'}</span>
                                       </button>
                                     </div>
                                   </div>
@@ -1308,6 +1584,247 @@ export default function StudentManagement({
         </div>
       )}
 
+      {/* CSV Bulk Import Modal Overlay */}
+      {isCsvModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="glass-panel-heavy rounded-3xl max-w-2xl w-full shadow-2xl border border-white/80 overflow-hidden transform transition duration-200 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="px-6 py-4 bg-white/40 backdrop-blur-md border-b border-white/40 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center border border-indigo-100">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                    {language === 'kh' ? 'នាំចូលសិស្សជាក្រុមតាម CSV' : 'Bulk Import Students via CSV'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    {language === 'kh' ? 'បញ្ចូលឯកសារ CSV ដើម្បីចុះឈ្មោះសិស្សច្រើននាក់ក្នុងពេលតែមួយ' : 'Upload a CSV file to add multiple students at once'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCsvModalOpen(false)}
+                className="text-slate-500 hover:text-slate-800 rounded-full p-1 bg-white/40 hover:bg-white/70 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 flex flex-col min-h-0">
+              {/* Instructions and Download Template Link */}
+              <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4 text-xs space-y-2">
+                <div className="flex justify-between items-start gap-2 flex-wrap">
+                  <div>
+                    <p className="font-extrabold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
+                      {language === 'kh' ? 'ការណែនាំអំពីទម្រង់ឯកសារ' : 'File Format Instructions'}
+                    </p>
+                    <p className="text-slate-500 leading-relaxed font-semibold">
+                      {language === 'kh' 
+                        ? 'ឯកសារ CSV របស់អ្នកគួរតែមានជួរឈរដូចជា៖ ឈ្មោះ, ភេទ, ថ្នាក់, លេខទូរស័ព្ទ, អ៊ីមែល, អត្តសញ្ញាណ។' 
+                        : 'Your CSV should include columns like: Name, Gender, Class, Phone, Email, Student ID.'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1">
+                      {language === 'kh'
+                        ? '* សម្គាល់៖ ឈ្មោះ និងថ្នាក់ គឺតម្រូវឱ្យមានជាដាច់ខាត។'
+                        : '* Note: Name and Class/Grade are required fields.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSampleCsv}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-black text-[10px] uppercase tracking-wider rounded-xl border border-indigo-150 transition shrink-0 cursor-pointer"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>{language === 'kh' ? 'ទាញយកគំរូ CSV' : 'Get Template CSV'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Drag and Drop Zone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleCsvFileSelect(e.dataTransfer.files[0]);
+                  }
+                }}
+                onClick={() => {
+                  document.getElementById('csv-file-picker')?.click();
+                }}
+                className={`border-2 border-dashed rounded-2xl p-6 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all duration-150 ${
+                  dragOver 
+                    ? 'border-indigo-500 bg-indigo-50/50 scale-[0.99]' 
+                    : csvFile 
+                      ? 'border-emerald-500 bg-emerald-50/10' 
+                      : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50/40'
+                }`}
+              >
+                <input
+                  id="csv-file-picker"
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      handleCsvFileSelect(e.target.files[0]);
+                    }
+                  }}
+                />
+                
+                {csvFile ? (
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-black text-slate-800 mt-1">{csvFile.name}</p>
+                    <p className="text-[10px] text-slate-400 font-bold">
+                      {(csvFile.size / 1024).toFixed(1)} KB &bull; {language === 'kh' ? 'ចុចទីនេះដើម្បីប្តូរឯកសារ' : 'Click to change file'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-center">
+                    <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-500 flex items-center justify-center">
+                      <Upload className="w-5 h-5" />
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">
+                      {language === 'kh' ? 'អូសទម្លាក់ឯកសារ CSV ទីនេះ ឬ ចុចដើម្បីស្វែងរក' : 'Drag & drop CSV file here, or click to browse'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-widest">
+                      {language === 'kh' ? 'គាំទ្រតែឯកសារ .csv តែប៉ុណ្ណោះ' : 'Supports .csv files only'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Parsing Error Message */}
+              {csvParsingError && (
+                <div className="bg-red-50 border border-red-150 rounded-2xl p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-black text-red-800">
+                      {language === 'kh' ? 'កំហុសក្នុងការវិភាគឯកសារ' : 'File Parsing Error'}
+                    </p>
+                    <p className="text-[11px] text-red-600 font-semibold mt-0.5">{csvParsingError}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Parse Preview Area */}
+              {parsedStudents.length > 0 && (
+                <div className="space-y-2.5 flex-1 flex flex-col min-h-0">
+                  <div className="flex justify-between items-center shrink-0">
+                    <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">
+                      {language === 'kh' ? 'ការពិនិត្យមើលទិន្នន័យជាមុន' : 'Import Preview & Validation'}
+                    </h4>
+                    <div className="flex gap-2">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[9px] font-black rounded-lg">
+                        {language === 'kh' ? `សរុប៖ ${parsedStudents.length}` : `Total: ${parsedStudents.length}`}
+                      </span>
+                      <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-black rounded-lg border border-emerald-100">
+                        {language === 'kh' 
+                          ? `ត្រឹមត្រូវ៖ ${parsedStudents.filter(s => s.isValid).length}` 
+                          : `Valid: ${parsedStudents.filter(s => s.isValid).length}`}
+                      </span>
+                      {parsedStudents.some(s => !s.isValid) && (
+                        <span className="px-2 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded-lg border border-red-100">
+                          {language === 'kh' 
+                            ? `មិនត្រឹមត្រូវ៖ ${parsedStudents.filter(s => !s.isValid).length}` 
+                            : `Errors: ${parsedStudents.filter(s => !s.isValid).length}`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Scrollable Table */}
+                  <div className="flex-1 min-h-0 border border-slate-200 rounded-2xl overflow-hidden bg-white">
+                    <div className="overflow-y-auto max-h-[220px] divide-y divide-slate-100">
+                      <table className="min-w-full divide-y divide-slate-150 text-left">
+                        <thead className="bg-slate-50 text-[10px] font-black text-slate-500 uppercase tracking-wider sticky top-0">
+                          <tr>
+                            <th className="px-4 py-2">{language === 'kh' ? 'ឈ្មោះ' : 'Name'}</th>
+                            <th className="px-3 py-2">{language === 'kh' ? 'ភេទ' : 'Gender'}</th>
+                            <th className="px-3 py-2">{language === 'kh' ? 'ថ្នាក់' : 'Class'}</th>
+                            <th className="px-3 py-2">{language === 'kh' ? 'ទូរស័ព្ទ' : 'Phone'}</th>
+                            <th className="px-3 py-2">{language === 'kh' ? 'ស្ថានភាព' : 'Status'}</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 text-xs">
+                          {parsedStudents.map((student, idx) => (
+                            <tr key={idx} className={student.isValid ? 'hover:bg-slate-50/50' : 'bg-red-50/30'}>
+                              <td className="px-4 py-2 font-bold text-slate-800">
+                                {student.name || <span className="text-red-500 italic">{language === 'kh' ? '(គ្មានឈ្មោះ)' : '(Missing Name)'}</span>}
+                              </td>
+                              <td className="px-3 py-2 font-semibold text-slate-500">
+                                {student.gender === 'F' ? (language === 'kh' ? 'ស្រី' : 'Female') : (language === 'kh' ? 'ប្រុស' : 'Male')}
+                              </td>
+                              <td className="px-3 py-2 font-bold text-indigo-600">
+                                {student.classGrade || <span className="text-red-500 italic">{language === 'kh' ? '(គ្មានថ្នាក់)' : '(Missing Class)'}</span>}
+                              </td>
+                              <td className="px-3 py-2 font-mono text-[10px] text-slate-500">{student.phoneNumber}</td>
+                              <td className="px-3 py-2">
+                                {student.isValid ? (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 text-[9px] font-black rounded uppercase tracking-wider border border-emerald-100">
+                                    <CheckCircle2 className="w-2.5 h-2.5" />
+                                    <span>{language === 'kh' ? 'រួចរាល់' : 'Ready'}</span>
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-red-50 text-red-700 text-[9px] font-black rounded uppercase tracking-wider border border-red-100" title={student.errors.join(', ')}>
+                                    <AlertCircle className="w-2.5 h-2.5" />
+                                    <span>{language === 'kh' ? 'កំហុស' : 'Error'}</span>
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-between items-center shrink-0">
+              <span className="text-[10px] font-bold text-slate-400">
+                {parsedStudents.length > 0 && (
+                  language === 'kh'
+                    ? `នឹងនាំចូលសិស្សចំនួន ${parsedStudents.filter(s => s.isValid).length} នាក់ក្នុងចំណោម ${parsedStudents.length} នាក់`
+                    : `Will import ${parsedStudents.filter(s => s.isValid).length} of ${parsedStudents.length} student records`
+                )}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCsvModalOpen(false)}
+                  className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-100 font-bold text-xs uppercase tracking-wider rounded-xl transition cursor-pointer"
+                >
+                  {language === 'kh' ? 'បោះបង់' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  disabled={parsedStudents.filter(s => s.isValid).length === 0}
+                  onClick={handleConfirmCsvImport}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-55 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-md transition cursor-pointer flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{language === 'kh' ? 'បញ្ជាក់ការនាំចូល' : 'Confirm Import'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add / Edit Student Modal Overlay */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
@@ -1559,6 +2076,13 @@ export default function StudentManagement({
                 className="px-4 py-2 border border-white/60 hover:bg-white/40 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer bg-white/20 backdrop-blur"
               >
                 {t.cancel}
+              </button>
+              <button
+                onClick={handleDownloadQrCode}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/10"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {language === 'kh' ? 'ទាញយកកូដ QR' : 'Download QR'}
               </button>
               <button
                 onClick={() => handlePrintStudentCard(qrViewStudent)}

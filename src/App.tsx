@@ -1314,15 +1314,6 @@ School Librarian`;
         );
       case 'dashboard':
       case 'analytics':
-        return (
-          <div className="p-6 h-full w-full">
-            <iframe
-              src="https://charts.mongodb.com/charts-library-cwvvbsx/public/dashboards/f349359b-c114-49a2-84fc-bb16c18861ad"
-              className="w-full h-full rounded-xl"
-              title="Analytics Dashboard"
-            />
-          </div>
-        );
       default:
         return (
           <Dashboard
