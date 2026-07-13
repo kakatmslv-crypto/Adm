@@ -15,6 +15,8 @@ import BorrowReturnSystem from './components/BorrowReturnSystem';
 import Reports from './components/Reports';
 import DeploymentCenter from './components/DeploymentCenter';
 import RoleManagement from './components/RoleManagement';
+import SettingsComponent from './components/Settings';
+import GraphQLDeveloperHub from './components/GraphQLDeveloperHub';
 import { useToast } from './context/ToastContext';
 import CameraScanner from './components/CameraScanner';
 import GlobalScanResultModal from './components/GlobalScanResultModal';
@@ -48,7 +50,9 @@ import {
   Search,
   Clock,
   Sun,
-  Moon
+  Moon,
+  Settings,
+  Code
 } from 'lucide-react';
 
 export default function App() {
@@ -130,6 +134,19 @@ export default function App() {
 
   const t = translations[language];
 
+  // Dynamic School Info Settings (Configurable in Settings tab)
+  const [cfgSchoolNameKh, setCfgSchoolNameKh] = useState(() => localStorage.getItem('cfg_school_name_kh') || 'វិទ្យាល័យ ហ៊ុន សែន អណ្តូងមាស');
+  const [cfgSchoolNameEn, setCfgSchoolNameEn] = useState(() => localStorage.getItem('cfg_school_name_en') || 'Hun Sen Andoung Meas HS');
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setCfgSchoolNameKh(localStorage.getItem('cfg_school_name_kh') || 'វិទ្យាល័យ ហ៊ុន សែន អណ្តូងមាស');
+      setCfgSchoolNameEn(localStorage.getItem('cfg_school_name_en') || 'Hun Sen Andoung Meas HS');
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
   // Auth state
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('library_user');
@@ -176,7 +193,7 @@ export default function App() {
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
 
   // Navigation View Router
-  const [activeView, setActiveView] = useState<'dashboard' | 'books' | 'students' | 'borrow' | 'reports' | 'deploy' | 'roles' | 'analytics'>('dashboard');
+  const [activeView, setActiveView] = useState<'dashboard' | 'books' | 'students' | 'borrow' | 'reports' | 'deploy' | 'roles' | 'analytics' | 'settings' | 'graphql'>('dashboard');
   const [bookSearchTerm, setBookSearchTerm] = useState('');
   const [studentSearchTerm, setStudentSearchTerm] = useState('');
   
@@ -1215,6 +1232,43 @@ School Librarian`;
     reader.readAsText(file);
   };
 
+  const handleResetDatabase = () => {
+    try {
+      localStorage.removeItem('library_books');
+      localStorage.removeItem('library_students');
+      localStorage.removeItem('library_records');
+      localStorage.removeItem('library_categories');
+      localStorage.removeItem('library_roles');
+      localStorage.removeItem('library_users');
+      localStorage.removeItem('library_wishlist');
+      localStorage.removeItem('cfg_school_name_kh');
+      localStorage.removeItem('cfg_school_name_en');
+      localStorage.removeItem('cfg_library_title_kh');
+      localStorage.removeItem('cfg_library_title_en');
+      localStorage.removeItem('cfg_contact_email');
+      localStorage.removeItem('cfg_contact_phone');
+      localStorage.removeItem('cfg_announcement_kh');
+      localStorage.removeItem('cfg_announcement_en');
+
+      setBooks(defaultBooks);
+      setStudents(defaultStudents);
+      setRecords(defaultBorrowRecords);
+      setCategories(defaultCategories);
+      setRoles(defaultRoles);
+      setUsers(defaultUsers);
+      setWishlist(defaultWishlist);
+
+      // Reset school name states
+      setCfgSchoolNameKh('វិទ្យាល័យ ហ៊ុន សែន អណ្តូងមាស');
+      setCfgSchoolNameEn('Hun Sen Andoung Meas HS');
+
+      showSuccess(language === 'kh' ? 'បានកំណត់មូលដ្ឋានទិន្នន័យឡើងវិញជោគជ័យ!' : 'Database successfully reset to defaults!');
+      window.dispatchEvent(new Event('storage'));
+    } catch (err) {
+      showError(language === 'kh' ? 'កំណត់ប្រព័ន្ធឡើងវិញមិនបានជោគជ័យ៖ ' : 'Failed to reset database: ' + err);
+    }
+  };
+
 
   // Render core views dynamically depending on activeView router
   const renderActiveView = () => {
@@ -1312,6 +1366,49 @@ School Librarian`;
             onUpdateUserName={handleUpdateUserName}
           />
         );
+      case 'settings':
+        return (
+          <SettingsComponent
+            language={language}
+            setLanguage={setLanguage}
+            books={books}
+            students={students}
+            records={records}
+            categories={categories}
+            isDarkMode={isDarkMode}
+            setIsDarkMode={setIsDarkMode}
+            onShowSuccess={showSuccess}
+            onShowError={showError}
+            onShowInfo={showInfo}
+            onResetDatabase={handleResetDatabase}
+          />
+        );
+      case 'graphql':
+        return (
+          <GraphQLDeveloperHub
+            books={books}
+            students={students}
+            records={records}
+            categories={categories}
+            language={language}
+            onAddBook={(newBookData) => {
+              const fullBook: Book = {
+                ...newBookData,
+                id: `b-${Date.now()}`
+              };
+              handleAddBook(fullBook);
+            }}
+            onReturnBook={(recordId, returnDate, fineAmount, notes) => {
+              const rec = records.find(r => r.id === recordId);
+              if (rec) {
+                const book = books.find(b => b.id === rec.bookId);
+                if (book) {
+                  handleReturnBook(book.barcode, returnDate, notes);
+                }
+              }
+            }}
+          />
+        );
       case 'dashboard':
       case 'analytics':
       default:
@@ -1323,6 +1420,7 @@ School Librarian`;
             categories={categories}
             language={language}
             currentUser={currentUser}
+            activeView={activeView}
             onNavigateToBook={(bookTitle) => {
               setBookSearchTerm(bookTitle);
               setActiveView('books');
@@ -1366,6 +1464,8 @@ School Librarian`;
     { id: 'reports', label: t.reports, icon: FileBarChart2, visible: currentPermissions.viewReports },
     { id: 'roles', label: language === 'kh' ? 'គ្រប់គ្រងតួនាទី' : 'Role Management', icon: Shield, visible: currentPermissions.manageRoles },
     { id: 'analytics', label: language === 'kh' ? 'វិភាគទិន្នន័យ' : 'Analytics', icon: FileBarChart2, visible: currentUser?.role !== 'student' },
+    { id: 'settings', label: language === 'kh' ? 'ការកំណត់ប្រព័ន្ធ' : 'System Settings', icon: Settings, visible: currentUser?.role !== 'student' },
+    { id: 'graphql', label: language === 'kh' ? 'មជ្ឈមណ្ឌល GraphQL' : 'GraphQL Dev Hub', icon: Code, visible: true },
   ];
 
   // Find current borrow details for the selected book in global header search
@@ -1382,8 +1482,12 @@ School Librarian`;
             <img src={schoolLogo} alt="School Logo" className="w-full h-full object-cover" />
           </div>
           <div>
-            <h2 className="text-xs font-black text-blue-200 uppercase tracking-widest leading-none">Hun Sen</h2>
-            <h1 className="text-xs font-black text-white tracking-tight leading-normal mt-0.5">Andoung Meas HS</h1>
+            <h2 className="text-[10px] font-black text-blue-200 uppercase tracking-widest leading-none truncate max-w-[150px]" title={language === 'kh' ? cfgSchoolNameKh : cfgSchoolNameEn}>
+              {language === 'kh' ? 'សាលារៀន' : 'Hun Sen'}
+            </h2>
+            <h1 className="text-xs font-black text-white tracking-tight leading-normal mt-0.5 truncate max-w-[150px]" title={language === 'kh' ? cfgSchoolNameKh : cfgSchoolNameEn}>
+              {language === 'kh' ? cfgSchoolNameKh.replace('វិទ្យាល័យ', '').trim() : cfgSchoolNameEn.replace('Hun Sen', '').trim()}
+            </h1>
           </div>
         </div>
 
@@ -1517,8 +1621,8 @@ School Librarian`;
             <Library className="w-4 h-4" />
           </div>
           <div>
-            <h2 className="text-[10px] font-black text-blue-900 leading-none">Hun Sen Andoung Meas</h2>
-            <h1 className="text-xs font-black text-slate-800 mt-0.5 leading-none">Library System</h1>
+            <h2 className="text-[10px] font-black text-blue-900 leading-none truncate max-w-[180px]">{language === 'kh' ? cfgSchoolNameKh : cfgSchoolNameEn}</h2>
+            <h1 className="text-xs font-black text-slate-800 mt-0.5 leading-none">{language === 'kh' ? 'ប្រព័ន្ធគ្រប់គ្រងបណ្ណាល័យ' : 'Library System'}</h1>
           </div>
         </div>
 

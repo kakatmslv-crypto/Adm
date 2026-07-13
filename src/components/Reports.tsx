@@ -6,8 +6,12 @@ import { translations } from '../utils/translations';
 import { 
   Calendar, Search, FileText, ArrowUpRight, Ban, Eye, FileDown, 
   Coins, Settings, ShieldAlert, Check, HelpCircle, Landmark, RotateCcw,
-  FileSpreadsheet, History, ChevronDown, BookOpen, Users, Mail, Send, AlertTriangle
+  FileSpreadsheet, History, ChevronDown, BookOpen, Users, Mail, Send, AlertTriangle,
+  TrendingUp, BarChart2
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, AreaChart, Area, Legend
+} from 'recharts';
 
 interface ReportsProps {
   books: Book[];
@@ -18,7 +22,7 @@ interface ReportsProps {
   onNotifyStudent: (student: Student, studentRecs: BorrowRecord[], studentBooks: Book[]) => void;
 }
 
-type ReportType = 'all' | 'active' | 'overdue' | 'overdue-list' | 'lost' | 'returned' | 'fees' | 'history';
+type ReportType = 'all' | 'active' | 'overdue' | 'overdue-list' | 'lost' | 'returned' | 'fees' | 'history' | 'trends';
 
 // Helper to compute difference in days
 function getDaysBetween(startStr: string, endStr: string): number {
@@ -38,6 +42,7 @@ export default function Reports({ books, students, records, language, categories
   // Report type tab selection
   const [activeReport, setActiveReport] = useState<ReportType>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [showOnlyOverdue, setShowOnlyOverdue] = useState(false);
   const [showCsvDropdown, setShowCsvDropdown] = useState(false);
   const [showPdfDropdown, setShowPdfDropdown] = useState(false);
 
@@ -79,6 +84,64 @@ export default function Reports({ books, students, records, language, categories
     return Object.values(groups);
   }, [records, students, books, todayStr]);
 
+  // Most borrowed books
+  const mostBorrowedBooksData = useMemo(() => {
+    // Count records per bookId
+    const counts: { [bookId: string]: number } = {};
+    records.forEach(rec => {
+      counts[rec.bookId] = (counts[rec.bookId] || 0) + 1;
+    });
+
+    // Sort books by borrow count and take top 7
+    return Object.entries(counts)
+      .map(([bookId, count]) => {
+        const book = books.find(b => b.id === bookId);
+        return {
+          id: bookId,
+          title: book ? book.title : `Unknown Book (${bookId})`,
+          shortTitle: book 
+            ? (book.title.length > 25 ? book.title.substring(0, 22) + '...' : book.title) 
+            : `Unknown Book`,
+          borrowCount: count,
+          barcode: book?.barcode || '',
+          cover: book?.coverImage || null,
+        };
+      })
+      .sort((a, b) => b.borrowCount - a.borrowCount)
+      .slice(0, 7);
+  }, [records, books]);
+
+  // Borrowing trends over the last 30 days
+  const borrowingTrendsData = useMemo(() => {
+    const data: Array<{ date: string; displayDate: string; borrows: number; returns: number }> = [];
+    const today = new Date();
+    
+    // Generate last 30 days
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const khmerMonths = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
+      const displayDate = language === 'kh' 
+        ? `${d.getDate()} ${khmerMonths[d.getMonth()]}`
+        : `${monthNames[d.getMonth()]} ${d.getDate()}`;
+
+      // Count borrows and returns on this day
+      const borrowsCount = records.filter(rec => rec.borrowDate === dateStr).length;
+      const returnsCount = records.filter(rec => rec.returnDate === dateStr).length;
+      
+      data.push({
+        date: dateStr,
+        displayDate,
+        borrows: borrowsCount,
+        returns: returnsCount
+      });
+    }
+    return data;
+  }, [records, language]);
+
   // Filtering records depending on selected Report Type
   const filteredRecords = records.filter(rec => {
     const book = books.find(b => b.id === rec.bookId);
@@ -92,6 +155,11 @@ export default function Reports({ books, students, records, language, categories
       (student?.studentId.toLowerCase().includes(searchTerm.toLowerCase()) || false);
 
     if (!matchesSearch) return false;
+
+    if (showOnlyOverdue) {
+      const isOverdue = (rec.status === 'overdue' || (rec.status === 'borrowed' && rec.dueDate < todayStr)) && !rec.returnDate;
+      if (!isOverdue) return false;
+    }
 
     switch (activeReport) {
       case 'active':
@@ -206,6 +274,8 @@ export default function Reports({ books, students, records, language, categories
         return language === 'kh' ? 'របាយការណ៍សវនកម្មថ្លៃពិន័យយឺតយ៉ាវ' : 'Late Fees & Fines Audit Report';
       case 'history':
         return language === 'kh' ? 'ប្រវត្តិប្រតិបត្តិការខ្ចី-សងតាមលំដាប់ពេលវេលា' : 'Chronological Borrow & Return Transaction History';
+      case 'trends':
+        return language === 'kh' ? 'និន្នាការនៃការខ្ចីសៀវភៅ និងសៀវភៅដែលពេញនិយមបំផុត' : 'Borrowing Trends & Most Popular Books';
       case 'all':
       default:
         return language === 'kh' ? 'របាយការណ៍ខ្ចី-សងសរុបទាំងអស់' : 'Comprehensive Library Transaction Log';
@@ -219,6 +289,11 @@ export default function Reports({ books, students, records, language, categories
       month: 'long',
       day: 'numeric'
     });
+
+    const schoolNameKh = localStorage.getItem('cfg_school_name_kh') || 'វិទ្យាល័យ ហ៊ុន សែន អណ្តូងមាស';
+    const schoolNameEn = localStorage.getItem('cfg_school_name_en') || 'Hun Sen Andoung Meas High School';
+    const libraryTitleKh = localStorage.getItem('cfg_library_title_kh') || 'បណ្ណាល័យសាលា';
+    const libraryTitleEn = localStorage.getItem('cfg_library_title_en') || 'School Library';
 
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -255,8 +330,8 @@ export default function Reports({ books, students, records, language, categories
 
         tableRows += `
           <tr>
-            <td><strong>${stu?.name || 'Unknown Student'}</strong><br><small>${stu?.studentId || ''} (${stu?.classGrade || 'N/A'})</small></td>
-            <td>${bk?.title || 'Unknown Book'}<br><small>${bk?.barcode || ''}</small></td>
+            <td><strong>${stu?.name || 'Unknown Student'}</strong><br><small style="color: #64748b;">ID: ${stu?.studentId || ''} (${stu?.classGrade || 'N/A'})</small></td>
+            <td><strong>${bk?.title || 'Unknown Book'}</strong><br><small style="color: #64748b;">Barcode: ${bk?.barcode || ''}</small></td>
             <td>${rec.borrowDate}</td>
             <td>${rec.returnDate ? `Returned: ${rec.returnDate}` : `Due: ${rec.dueDate}`}</td>
             <td>${daysOverdue} ${language === 'kh' ? 'ថ្ងៃ' : 'days'}</td>
@@ -281,10 +356,54 @@ export default function Reports({ books, students, records, language, categories
           <tr>
             <td><strong>${evt.date}</strong></td>
             <td><span class="status-badge" style="font-size: 9px; font-weight: bold; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; ${badgeColor}">${typeLabel}</span></td>
-            <td>${bk?.title || 'Unknown Book'}<br><small>${bk?.barcode || ''}</small></td>
-            <td><strong>${stu?.name || 'Unknown Student'}</strong><br><small>${stu?.studentId || ''} (${stu?.classGrade || 'N/A'})</small></td>
+            <td><strong>${bk?.title || 'Unknown Book'}</strong><br><small style="color: #64748b;">Barcode: ${bk?.barcode || ''}</small></td>
+            <td><strong>${stu?.name || 'Unknown Student'}</strong><br><small style="color: #64748b;">ID: ${stu?.studentId || ''} (${stu?.classGrade || 'N/A'})</small></td>
             <td><small>#${evt.recordId.replace('rec-', '')}</small></td>
             <td><small>${evt.notes || '-'}</small></td>
+          </tr>
+        `;
+      });
+    } else if (activeReport === 'overdue-list') {
+      let filteredOverdueStudents = overdueRecordsByStudent;
+      if (searchTerm) {
+        const lowerSearch = searchTerm.toLowerCase();
+        filteredOverdueStudents = overdueRecordsByStudent.filter(({ student, books: studentBooks }) => {
+          return student.name.toLowerCase().includes(lowerSearch) ||
+            student.studentId.toLowerCase().includes(lowerSearch) ||
+            student.classGrade.toLowerCase().includes(lowerSearch) ||
+            studentBooks.some(b => b.title.toLowerCase().includes(lowerSearch) || b.barcode.toLowerCase().includes(lowerSearch));
+        });
+      }
+
+      filteredOverdueStudents.forEach(({ student, records: studentRecs, books: studentBooks }) => {
+        let booksHtml = '';
+        studentRecs.forEach((rec, idx) => {
+          const bk = studentBooks[idx];
+          booksHtml += `
+            <div style="margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px dashed #e2e8f0; line-height: 1.4;">
+              <strong>${bk?.title || 'Unknown Book'}</strong><br>
+              <small style="color: #64748b;">Barcode: ${bk?.barcode || 'N/A'} | Borrowed: ${rec.borrowDate} | Due: <span style="color: #b91c1c; font-weight: bold;">${rec.dueDate}</span></small>
+            </div>
+          `;
+        });
+
+        tableRows += `
+          <tr>
+            <td>
+              <strong>${student.name}</strong><br>
+              <small style="color: #64748b;">ID: ${student.studentId} (${student.classGrade})</small>
+            </td>
+            <td>
+              ${booksHtml || `<span style="color: #94a3b8; font-style: italic;">${language === 'kh' ? 'គ្មានសៀវភៅទេ' : 'No books'}</span>`}
+            </td>
+            <td>
+              <strong>${studentRecs.length} ${language === 'kh' ? 'ក្បាល' : 'books'}</strong>
+            </td>
+            <td>
+              <span class="status-badge overdue" style="background-color: #fee2e2; color: #991b1b; padding: 3px 6px; border-radius: 4px; font-size: 8px; font-weight: bold;">
+                ${language === 'kh' ? 'ហួសកំណត់' : 'OVERDUE'}
+              </span>
+            </td>
           </tr>
         `;
       });
@@ -294,11 +413,11 @@ export default function Reports({ books, students, records, language, categories
         const stu = students.find(s => s.id === rec.studentId);
         tableRows += `
           <tr>
-            <td>${rec.id}</td>
-            <td>${bk?.barcode || ''}</td>
-            <td>${bk?.title || 'Unknown Book'}</td>
-            <td>${stu?.name || 'Unknown Student'}</td>
-            <td>${stu?.classGrade || ''}</td>
+            <td>#${rec.id.replace('rec-', '')}</td>
+            <td><strong>${bk?.barcode || ''}</strong></td>
+            <td><strong>${bk?.title || 'Unknown Book'}</strong><br><small style="color: #64748b;">${bk?.author || 'No Author'}</small></td>
+            <td><strong>${stu?.name || 'Unknown Student'}</strong><br><small style="color: #64748b;">ID: ${stu?.studentId || 'N/A'}</small></td>
+            <td>${stu?.classGrade || 'N/A'}</td>
             <td>${rec.borrowDate}</td>
             <td>${rec.dueDate}</td>
             <td>${rec.returnDate || '-'}</td>
@@ -331,6 +450,15 @@ export default function Reports({ books, students, records, language, categories
           <th>${language === 'kh' ? 'កំណត់សម្គាល់' : 'NOTES'}</th>
         </tr>
       `
+      : activeReport === 'overdue-list'
+      ? `
+        <tr>
+          <th>${language === 'kh' ? 'សិស្ស' : 'STUDENT'}</th>
+          <th>${language === 'kh' ? 'ព័ត៌មានលម្អិតសៀវភៅហួសកំណត់' : 'OVERDUE BOOK DETAILS'}</th>
+          <th>${language === 'kh' ? 'ចំនួនសៀវភៅ' : 'BOOK COUNT'}</th>
+          <th>${language === 'kh' ? 'ស្ថានភាព' : 'STATUS'}</th>
+        </tr>
+      `
       : `
         <tr>
           <th>${language === 'kh' ? 'លេខកូដសំបុត្រ' : 'TRANSACT ID'}</th>
@@ -349,9 +477,12 @@ export default function Reports({ books, students, records, language, categories
       <html>
         <head>
           <title>${reportTitle}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Kantumruy+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
             body {
-              font-family: 'Helvetica Neue', Arial, sans-serif;
+              font-family: 'Kantumruy Pro', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
               color: #1e293b;
               padding: 40px;
               line-height: 1.5;
@@ -399,13 +530,15 @@ export default function Reports({ books, students, records, language, categories
             td {
               padding: 10px;
               border: 1px solid #e2e8f0;
+              vertical-align: top;
             }
             .status-badge {
-              font-size: 9px;
+              font-size: 8px;
               font-weight: bold;
               padding: 2px 6px;
               border-radius: 4px;
               text-transform: uppercase;
+              display: inline-block;
             }
             .status-badge.returned { background-color: #d1fae5; color: #065f46; }
             .status-badge.borrowed { background-color: #dbeafe; color: #1e40af; }
@@ -428,14 +561,14 @@ export default function Reports({ books, students, records, language, categories
         </head>
         <body>
           <div class="header">
-            <h1>${language === 'kh' ? 'វិទ្យាល័យអណ្ដូងមាស' : 'Hun Sen Andoung Meas High School'}</h1>
-            <h2>${language === 'kh' ? 'បណ្ណាល័យសាលា - របាយការណ៍ស្វ័យប្រវត្តិ' : 'School Library Automated Reporting'}</h2>
+            <h1>${language === 'kh' ? schoolNameKh : schoolNameEn}</h1>
+            <h2>${language === 'kh' ? `${libraryTitleKh} - របាយការណ៍ស្វ័យប្រវត្តិ` : `${libraryTitleEn} - School Library Automated Reporting`}</h2>
             <h3 style="margin: 10px 0 0 0; color: #1e3a8a;">${reportTitle}</h3>
           </div>
           
           <div class="meta-info">
             <div>${language === 'kh' ? 'កាលបរិច្ឆេទបង្កើត៖' : 'REPORT DATE:'} ${todayStr}</div>
-            <div>${language === 'kh' ? 'កំណត់ត្រាសរុប៖' : 'TOTAL RECORDS:'} ${activeReport === 'history' ? getHistoryEvents().length : filteredRecords.length}</div>
+            <div>${language === 'kh' ? 'កំណត់ត្រាសរុប៖' : 'TOTAL RECORDS:'} ${activeReport === 'history' ? getHistoryEvents().length : activeReport === 'overdue-list' ? (searchTerm ? overdueRecordsByStudent.filter(({ student, books: studentBooks }) => student.name.toLowerCase().includes(searchTerm.toLowerCase()) || student.studentId.toLowerCase().includes(searchTerm.toLowerCase()) || studentBooks.some(b => b.title.toLowerCase().includes(searchTerm.toLowerCase()))).length : overdueRecordsByStudent.length) : filteredRecords.length}</div>
           </div>
           
           <table>
@@ -443,7 +576,7 @@ export default function Reports({ books, students, records, language, categories
               ${tableHeader}
             </thead>
             <tbody>
-              ${tableRows || `<tr><td colspan="9" style="text-align: center; color: #94a3b8;">No records to display</td></tr>`}
+              ${tableRows || `<tr><td colspan="10" style="text-align: center; color: #94a3b8;">No records to display</td></tr>`}
             </tbody>
           </table>
           
@@ -1562,6 +1695,15 @@ export default function Reports({ books, students, records, language, categories
             <History className="w-3.5 h-3.5" />
             {language === 'kh' ? 'ប្រវត្តិប្រតិបត្តិការ' : 'Transaction History'}
           </button>
+          <button
+            onClick={() => setActiveReport('trends')}
+            className={`px-4 py-2 text-xs font-bold rounded-xl transition cursor-pointer flex items-center gap-1.5 ${
+              activeReport === 'trends' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900 hover:bg-white/40'
+            }`}
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            {language === 'kh' ? 'និន្នាការ & សៀវភៅពេញនិយម' : 'Trends & Popular Books'}
+          </button>
         </div>
 
         {/* Action Buttons */}
@@ -1905,8 +2047,8 @@ export default function Reports({ books, students, records, language, categories
       )}
 
       {/* Search Input within reports */}
-      <div className="glass-panel p-4 rounded-3xl border border-white/60 shadow-sm">
-        <div className="relative">
+      <div className="glass-panel p-4 rounded-3xl border border-white/60 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="relative flex-1 w-full">
           <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-slate-400" />
           </span>
@@ -1918,6 +2060,24 @@ export default function Reports({ books, students, records, language, categories
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10 pr-4 py-2 block w-full rounded-2xl text-slate-800 text-sm focus:outline-none transition glass-input"
           />
+        </div>
+
+        {/* Overdue filter option */}
+        <div className="flex items-center gap-3 self-start md:self-auto shrink-0 bg-white/40 backdrop-blur-sm px-4 py-2.5 rounded-2xl border border-white/60 shadow-xs">
+          <label className="relative flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              id="overdue-only-filter"
+              checked={showOnlyOverdue}
+              onChange={(e) => setShowOnlyOverdue(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-slate-300/80 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[6px] after:left-[4px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-rose-500"></div>
+            <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5 ml-1">
+              <AlertTriangle className={`w-3.5 h-3.5 transition-colors duration-200 ${showOnlyOverdue ? 'text-rose-500 animate-pulse' : 'text-slate-400'}`} />
+              {language === 'kh' ? 'បង្ហាញតែឯកសារហួសកាលកំណត់' : 'Show only overdue records'}
+            </span>
+          </label>
         </div>
       </div>
 
@@ -2025,12 +2185,193 @@ Thank you!`;
             {getReportTitle()}
           </h2>
           <span className="text-xs bg-white/65 border border-white/50 text-blue-700 font-bold px-2.5 py-1 rounded-full">
-            {activeReport === 'history' ? getHistoryEvents().length : filteredRecords.length} {language === 'kh' ? 'កំណត់ត្រា' : 'records found'}
+            {activeReport === 'trends' 
+              ? (language === 'kh' ? 'ការវិភាគនិន្នាការ' : 'Analytics Visualization')
+              : `${activeReport === 'history' ? getHistoryEvents().length : filteredRecords.length} ${language === 'kh' ? 'កំណត់ត្រា' : 'records found'}`
+            }
           </span>
         </div>
 
         <div className="overflow-x-auto">
-          {activeReport === 'fees' ? (
+          {activeReport === 'trends' ? (
+            <div className="p-6 space-y-8 bg-white/10 backdrop-blur-sm">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* 30 Days Borrowing Trends Chart Card */}
+                <div className="bg-white/40 border border-white/60 p-6 rounded-2xl shadow-sm flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-indigo-600" />
+                        {language === 'kh' ? 'និន្នាការនៃការខ្ចីសៀវភៅ ៣០ ថ្ងៃចុងក្រោយ' : '30-Day Borrowing & Return Trends'}
+                      </h3>
+                    </div>
+                    <p className="text-xs font-semibold text-slate-500 mb-6 leading-relaxed">
+                      {language === 'kh' 
+                        ? 'បង្ហាញពីចំនួនប្រតិបត្តិការខ្ចី និងសងសៀវភៅប្រចាំថ្ងៃក្នុងរយៈពេល ៣០ ថ្ងៃចុងក្រោយនេះ ដើម្បីតាមដានសកម្មភាពបណ្ណាល័យ។' 
+                        : 'Tracks the daily volume of book borrowing and return transactions over the past 30 days to monitor library activity patterns.'}
+                    </p>
+                  </div>
+                  
+                  <div className="h-72 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={borrowingTrendsData}
+                        margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                      >
+                        <defs>
+                          <linearGradient id="colorBorrows" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                          <linearGradient id="colorReturns" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" opacity={0.3} />
+                        <XAxis 
+                          dataKey="displayDate" 
+                          stroke="#64748b" 
+                          fontSize={9} 
+                          tickLine={false}
+                          axisLine={false}
+                          dy={8}
+                        />
+                        <YAxis 
+                          stroke="#64748b" 
+                          fontSize={10} 
+                          tickLine={false}
+                          axisLine={false}
+                          allowDecimals={false}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '12px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+                            fontSize: '11px',
+                            fontWeight: 'bold',
+                          }}
+                        />
+                        <Legend 
+                          verticalAlign="top" 
+                          height={36} 
+                          iconType="circle"
+                          iconSize={8}
+                          wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }}
+                        />
+                        <Area 
+                          type="monotone" 
+                          name={language === 'kh' ? 'ចំនួនខ្ចី' : 'Borrows'} 
+                          dataKey="borrows" 
+                          stroke="#3b82f6" 
+                          strokeWidth={2}
+                          fillOpacity={1} 
+                          fill="url(#colorBorrows)" 
+                        />
+                        <Area 
+                          type="monotone" 
+                          name={language === 'kh' ? 'ចំនួនសង' : 'Returns'} 
+                          dataKey="returns" 
+                          stroke="#10b981" 
+                          strokeWidth={2}
+                          fillOpacity={1} 
+                          fill="url(#colorReturns)" 
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Most Borrowed Books Chart Card */}
+                <div className="bg-white/40 border border-white/60 p-6 rounded-2xl shadow-sm flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2 mb-4">
+                      <BarChart2 className="w-4 h-4 text-indigo-600" />
+                      {language === 'kh' ? 'សៀវភៅដែលពេញនិយមបំផុតទាំង ៧' : 'Top 7 Most Popular Books'}
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500 mb-6 leading-relaxed">
+                      {language === 'kh'
+                        ? 'ការវិភាគលើចំណងជើងសៀវភៅដែលមានអត្រាខ្ចីច្រើនជាងគេបំផុត ដើម្បីយល់ដឹងពីចំណង់ចំណូលចិត្តអានរបស់សិស្ស។'
+                        : 'Analysis of books with the highest borrow frequencies to identify reading interests and high-demand titles.'}
+                    </p>
+                  </div>
+
+                  {mostBorrowedBooksData.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                      {/* Bar chart rendering */}
+                      <div className="h-64 w-full md:col-span-7">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            layout="vertical"
+                            data={mostBorrowedBooksData}
+                            margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" stroke="#cbd5e1" opacity={0.3} horizontal={false} />
+                            <XAxis type="number" stroke="#64748b" fontSize={9} tickLine={false} axisLine={false} allowDecimals={false} />
+                            <YAxis 
+                              type="category" 
+                              dataKey="shortTitle" 
+                              stroke="#64748b" 
+                              fontSize={9} 
+                              tickLine={false}
+                              axisLine={false}
+                              width={100}
+                            />
+                            <Tooltip
+                              contentStyle={{
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                border: '1px solid #e2e8f0',
+                                borderRadius: '12px',
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                              }}
+                            />
+                            <Bar dataKey="borrowCount" fill="#6366f1" radius={[0, 4, 4, 0]}>
+                              {mostBorrowedBooksData.map((entry, index) => {
+                                const colors = ['#6366f1', '#4f46e5', '#3b82f6', '#2563eb', '#10b981', '#059669', '#f59e0b'];
+                                return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                              })}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      {/* Rank List with details */}
+                      <div className="md:col-span-5 space-y-2.5">
+                        {mostBorrowedBooksData.map((book, idx) => (
+                          <div key={book.id} className="flex items-center gap-2.5 bg-white/50 hover:bg-white/85 p-2 rounded-xl border border-white/50 transition shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                            <div className="w-5 h-5 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center font-extrabold text-[10px] text-indigo-700 shrink-0">
+                              {idx + 1}
+                            </div>
+                            {book.cover ? (
+                              <img src={book.cover} alt={book.title} className="w-6 h-8 object-cover rounded border border-slate-100 shadow-sm shrink-0 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.05)]" />
+                            ) : (
+                              <div className="w-6 h-8 rounded border border-slate-200 bg-slate-50 flex items-center justify-center text-slate-300 shrink-0 text-[6px] font-bold">N/A</div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-bold text-slate-800 truncate" title={book.title}>{book.title}</p>
+                              <p className="text-[8px] text-slate-400 font-bold font-mono uppercase tracking-wide">{book.barcode || 'NO BARCODE'}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-xs font-black text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-lg">
+                                {book.borrowCount} {language === 'kh' ? 'ដង' : 'loans'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-slate-400 font-bold text-xs">
+                      {language === 'kh' ? 'មិនមានសៀវភៅដែលត្រូវបានខ្ចីទេ' : 'No books have been borrowed yet.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeReport === 'fees' ? (
             /* LATE FEES BREAKDOWN TABLE */
             <table className="min-w-full divide-y divide-white/20">
               <thead className="bg-white/10">

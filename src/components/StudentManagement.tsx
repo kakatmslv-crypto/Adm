@@ -519,147 +519,139 @@ export default function StudentManagement({
   };
 
   const handlePrintStudentCard = (student: Student) => {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>${student.studentId} - ${student.name}</title>
-            <style>
-              body {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                height: 100vh;
-                margin: 0;
-                font-family: sans-serif;
-                background-color: #f8fafc;
-              }
-              .card {
-                border: 2px solid #3b82f6;
-                padding: 24px;
-                border-radius: 20px;
-                background: #ffffff;
-                box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-                width: 320px;
-                text-align: center;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-              }
-              .card {
-                width: 320px;
-                padding: 24px;
-                background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
-                border: 1px solid #e2e8f0;
-                border-radius: 24px;
-                box-shadow: 0 15px 30px -10px rgba(0,0,0,0.15);
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
-                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-              }
-              .school {
-                font-size: 10px;
-                text-transform: uppercase;
-                letter-spacing: 1.5px;
-                color: #64748b;
-                font-weight: 900;
-                margin-bottom: 8px;
-              }
-              .title {
-                font-size: 16px;
-                font-weight: 800;
-                color: #1e3a8a;
-                margin: 0 0 16px 0;
-              }
-               .avatar {
-                width: 80px;
-                height: 80px;
-                border-radius: 20px;
-                background: ${student.gender === 'M' ? '#dbeafe' : '#fce7f3'};
-                color: ${student.gender === 'M' ? '#1d4ed8' : '#be185d'};
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 32px;
-                font-weight: 800;
-                margin-bottom: 16px;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-              }
-              .avatar-img {
-                width: 80px;
-                height: 80px;
-                border-radius: 20px;
-                object-fit: cover;
-                border: 3px solid #ffffff;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-                margin-bottom: 16px;
-              }
-              .name {
-                font-size: 20px;
-                font-weight: 800;
-                color: #0f172a;
-                margin: 0 0 4px 0;
-              }
-              .details {
-                font-size: 13px;
-                color: #475569;
-                font-weight: 600;
-                margin: 0 0 16px 0;
-                background: rgba(255,255,255,0.6);
-                padding: 4px 12px;
-                border-radius: 8px;
-              }
-              .qr-container {
-                border: 1px solid #e2e8f0;
-                padding: 10px;
-                border-radius: 16px;
-                background: #ffffff;
-                margin-bottom: 16px;
-                box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
-              }
-              .id-label {
-                font-family: monospace;
-                font-size: 14px;
-                font-weight: 900;
-                color: #1e293b;
-                background: #e2e8f0;
-                padding: 4px 12px;
-                border-radius: 8px;
-                letter-spacing: 0.5px;
-              }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <span class="school">Hun Sen Andoung Meas High School</span>
-              <h2 class="title">STUDENT LIBRARY CARD</h2>
-              ${student.photo ? `
-                <img class="avatar-img" src="${student.photo}" alt="${student.name}" />
-              ` : `
-                <div class="avatar">${student.name.charAt(0)}</div>
-              `}
-              <p class="name">${student.name}</p>
-              <p class="details">Grade: ${student.classGrade} | Gen: ${student.gender === 'M' ? 'Male' : 'Female'}</p>
-              <div class="qr-container">
-                <img src="${studentQrCodeUrl}" width="150" height="150" alt="Student QR Code" />
-              </div>
-              <span class="id-label">${student.studentId}</span>
-            </div>
-            <script>
-              window.onload = function() {
-                window.print();
-                setTimeout(function() { window.close(); }, 500);
-              };
-            </script>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-    }
+    QRCode.toDataURL(student.studentId, { margin: 1, width: 300 })
+      .then((qrUrl) => {
+        const printWindow = window.open('', '_blank');
+        if (printWindow) {
+          printWindow.document.write(`
+            <html>
+              <head>
+                <title>${student.studentId} - ${student.name}</title>
+                <style>
+                  body {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                    font-family: sans-serif;
+                    background-color: #f8fafc;
+                  }
+                  .card {
+                    width: 320px;
+                    padding: 24px;
+                    background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%);
+                    border: 1px solid #e2e8f0;
+                    border-radius: 24px;
+                    box-shadow: 0 15px 30px -10px rgba(0,0,0,0.15);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    text-align: center;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                  }
+                  .school {
+                    font-size: 10px;
+                    text-transform: uppercase;
+                    letter-spacing: 1.5px;
+                    color: #64748b;
+                    font-weight: 900;
+                    margin-bottom: 8px;
+                  }
+                  .title {
+                    font-size: 16px;
+                    font-weight: 800;
+                    color: #1e3a8a;
+                    margin: 0 0 16px 0;
+                  }
+                  .avatar {
+                    width: 80px;
+                    height: 80px;
+                    border-radius: 20px;
+                    background: ${student.gender === 'M' ? '#dbeafe' : '#fce7f3'};
+                    color: ${student.gender === 'M' ? '#1d4ed8' : '#be185d'};
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 32px;
+                    font-weight: 800;
+                    margin-bottom: 16px;
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                  }
+                  .avatar-img {
+                    width: 80px;
+                    height: 80px;
+                    border-radius: 20px;
+                    object-fit: cover;
+                    border: 3px solid #ffffff;
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+                    margin-bottom: 16px;
+                  }
+                  .name {
+                    font-size: 20px;
+                    font-weight: 800;
+                    color: #0f172a;
+                    margin: 0 0 4px 0;
+                  }
+                  .details {
+                    font-size: 13px;
+                    color: #475569;
+                    font-weight: 600;
+                    margin: 0 0 16px 0;
+                    background: rgba(255,255,255,0.6);
+                    padding: 4px 12px;
+                    border-radius: 8px;
+                  }
+                  .qr-container {
+                    border: 1px solid #e2e8f0;
+                    padding: 10px;
+                    border-radius: 16px;
+                    background: #ffffff;
+                    margin-bottom: 16px;
+                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
+                  }
+                  .id-label {
+                    font-family: monospace;
+                    font-size: 14px;
+                    font-weight: 900;
+                    color: #1e293b;
+                    background: #e2e8f0;
+                    padding: 4px 12px;
+                    border-radius: 8px;
+                    letter-spacing: 0.5px;
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="card">
+                  <span class="school">Hun Sen Andoung Meas High School</span>
+                  <h2 class="title">STUDENT LIBRARY CARD</h2>
+                  ${student.photo ? `
+                    <img class="avatar-img" src="${student.photo}" alt="${student.name}" />
+                  ` : `
+                    <div class="avatar">${student.name.charAt(0)}</div>
+                  `}
+                  <p class="name">${student.name}</p>
+                  <p class="details">Grade: ${student.classGrade} | Gen: ${student.gender === 'M' ? 'Male' : 'Female'}</p>
+                  <div class="qr-container">
+                    <img src="${qrUrl}" width="150" height="150" alt="Student QR Code" />
+                  </div>
+                  <span class="id-label">${student.studentId}</span>
+                </div>
+                <script>
+                  window.onload = function() {
+                    window.print();
+                    setTimeout(function() { window.close(); }, 500);
+                  };
+                </script>
+              </body>
+            </html>
+          `);
+          printWindow.document.close();
+        }
+      })
+      .catch((err) => console.error(err));
   };
 
   // Form Fields
@@ -928,11 +920,12 @@ export default function StudentManagement({
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-xs font-black space-x-1.5">
                         <button
+                          type="button"
                           onClick={() => setQrViewStudent(student)}
-                          title={language === 'kh' ? 'កាតសិស្ស និងកូដ QR' : 'Student Card & QR Code'}
-                          className="p-1.5 bg-white/40 backdrop-blur-sm border border-white/60 text-slate-600 rounded-lg hover:text-blue-600 hover:bg-white/80 transition inline-flex items-center cursor-pointer"
+                          className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 rounded-xl hover:shadow-sm transition inline-flex items-center gap-1.5 cursor-pointer font-bold text-[10px]"
                         >
-                          <QrCode className="w-3.5 h-3.5" />
+                          <QrCode className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>{language === 'kh' ? 'បោះពុម្ពកាតសិស្ស' : 'Print ID Card'}</span>
                         </button>
                         <button
                           onClick={() => openEditModal(student)}
@@ -1070,7 +1063,17 @@ export default function StudentManagement({
                                         className="mt-2 ml-2 inline-flex items-center gap-1.5 bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 rounded-xl px-2.5 py-1 text-[10px] font-black text-indigo-600 hover:text-indigo-700 transition cursor-pointer shadow-sm animate-fade-in"
                                       >
                                         <QrCode className="w-3.5 h-3.5 text-indigo-500" />
-                                        <span>{language === 'kh' ? 'កូដ QR សិស្ស' : 'Student QR/Card'}</span>
+                                        <span>{language === 'kh' ? 'បោះពុម្ពកាតសិស្ស' : 'Print ID Card'}</span>
+                                      </button>
+
+                                      {/* Direct Print Card Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handlePrintStudentCard(student)}
+                                        className="mt-2 ml-2 inline-flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100/70 border border-blue-200 rounded-xl px-2.5 py-1 text-[10px] font-black text-blue-600 hover:text-blue-700 transition cursor-pointer shadow-sm animate-fade-in"
+                                      >
+                                        <Printer className="w-3.5 h-3.5 text-blue-500" />
+                                        <span>{language === 'kh' ? 'បោះពុម្ពកាត' : 'Print Card'}</span>
                                       </button>
                                     </div>
                                   </div>

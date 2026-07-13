@@ -9,6 +9,8 @@ import BorrowingActivityTrend from './BorrowingActivityTrend';
 import MonthlyBorrowingChart from './MonthlyBorrowingChart';
 import DailyAttendanceActivity from './DailyAttendanceActivity';
 import LibraryMap from './LibraryMap';
+import OverdueAnalyticsWidget from './OverdueAnalyticsWidget';
+import DailyMetricsWidget from './DailyMetricsWidget';
 import { useState, useMemo, useEffect } from 'react';
 import { useToast } from '../context/ToastContext';
 import schoolLogo from '../assets/images/school_logo_1783221279657.jpg';
@@ -24,6 +26,7 @@ interface DashboardProps {
   currentUser?: User | null;
   onNavigateToBook?: (bookTitle: string) => void;
   onNavigateToStudent?: (studentId: string, studentName: string) => void;
+  activeView?: string;
 }
 
 export default function Dashboard({
@@ -35,6 +38,7 @@ export default function Dashboard({
   currentUser,
   onNavigateToBook,
   onNavigateToStudent,
+  activeView,
 }: DashboardProps) {
   const t = translations[language];
 
@@ -151,6 +155,47 @@ export default function Dashboard({
   const returnedStudentRecords = useMemo(() => {
     return studentRecords.filter(r => r.status === 'returned' || !!r.returnDate);
   }, [studentRecords]);
+
+  const studentRecentActivities = useMemo(() => {
+    if (!currentStudent) return [];
+    const events: Array<{
+      id: string;
+      bookTitle: string;
+      bookId: string;
+      type: 'borrow' | 'return';
+      action: string;
+      date: string;
+    }> = [];
+
+    studentRecords.forEach(rec => {
+      const book = books.find(b => b.id === rec.bookId);
+      const bookTitle = book?.title || 'Unknown Book';
+
+      events.push({
+        id: `${rec.id}-borrow`,
+        bookTitle,
+        bookId: rec.bookId,
+        type: 'borrow',
+        action: language === 'kh' ? 'ខ្ចីសៀវភៅ' : 'Borrowed',
+        date: rec.borrowDate,
+      });
+
+      if (rec.returnDate) {
+        events.push({
+          id: `${rec.id}-return`,
+          bookTitle,
+          bookId: rec.bookId,
+          type: 'return',
+          action: language === 'kh' ? 'សងត្រឡប់' : 'Returned',
+          date: rec.returnDate,
+        });
+      }
+    });
+
+    return events
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 5);
+  }, [studentRecords, books, language, currentStudent]);
 
   // If a student is logged in, intercept with a personalized, high-fidelity Student Portal dashboard.
   if (currentUser?.role === 'student') {
@@ -294,6 +339,75 @@ export default function Dashboard({
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{language === 'kh' ? 'សរុបទាំងអស់' : 'Total Logs'}</p>
                   <p className="text-xl font-black text-slate-800 font-mono">{studentRecords.length}</p>
                 </div>
+              </div>
+            </div>
+
+            {/* Student Recent Activities Sidebar Widget */}
+            <div className="bg-white rounded-3xl p-6 border border-slate-200/60 shadow-md">
+              <h2 className="text-base font-black text-slate-800 tracking-tight flex items-center gap-2 mb-4">
+                <Activity className="w-5 h-5 text-blue-600 shrink-0" />
+                {language === 'kh' ? 'សកម្មភាពថ្មីៗរបស់អ្នក' : 'Your Recent Activities'}
+              </h2>
+              
+              <div className="flow-root max-h-[300px] overflow-y-auto pr-1">
+                <ul className="-mb-8">
+                  <AnimatePresence initial={false}>
+                    {studentRecentActivities.length > 0 ? (
+                      studentRecentActivities.map((activity, activityIdx) => (
+                        <motion.li
+                          key={activity.id}
+                          initial={{ opacity: 0, y: 15 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ type: "spring", stiffness: 350, damping: 25 }}
+                          layout
+                        >
+                          <div className="relative pb-6">
+                            {activityIdx !== studentRecentActivities.length - 1 ? (
+                              <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-slate-100" aria-hidden="true" />
+                            ) : null}
+                            <div className="relative flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 shadow-sm ${
+                                  activity.type === 'return'
+                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                    : 'bg-blue-50 text-blue-600 border border-blue-100'
+                                }`}>
+                                  {activity.type === 'return' ? (
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <BookOpen className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="text-xs font-black text-slate-800 truncate" title={activity.bookTitle}>
+                                    {activity.bookTitle}
+                                  </div>
+                                  <div className="text-[10px] font-bold text-slate-400 mt-0.5">
+                                    {activity.action}
+                                  </div>
+                                </div>
+                              </div>
+                              
+                              <div className="text-[10px] font-bold text-slate-400 font-mono shrink-0">
+                                {activity.date}
+                              </div>
+                            </div>
+                          </div>
+                        </motion.li>
+                      ))
+                    ) : (
+                      <motion.div
+                        key="empty-student-activity"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-center py-6 text-slate-400 text-xs font-semibold"
+                      >
+                        {language === 'kh' ? 'មិនទាន់មានប្រវត្តសកម្មភាពនៅឡើយទេ' : 'No recent activities recorded.'}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </ul>
               </div>
             </div>
           </div>
@@ -702,6 +816,31 @@ export default function Dashboard({
           </button>
         </div>
       )}
+
+      {/* Daily Operations At-a-Glance */}
+      <DailyMetricsWidget
+        books={books}
+        records={records}
+        students={students}
+        language={language}
+        sentReminders={sentReminders}
+        sendingReminders={sendingReminders}
+        onRemindStudent={openReminderModal}
+        onFocusAlertsDesk={(tab) => {
+          setActiveTab(tab);
+          const el = document.getElementById('alerts-desk-section');
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth' });
+          }
+        }}
+      />
+
+      {/* Overdue & Loan Analytics Center */}
+      <OverdueAnalyticsWidget
+        books={books}
+        records={records}
+        language={language}
+      />
 
       {/* At-a-Glance Library Status Summary Section */}
       <div id="library-status-at-a-glance" className="glass-panel rounded-3xl p-6 border border-white/60 shadow-sm bg-gradient-to-br from-slate-50/50 to-white/30 backdrop-blur-md">

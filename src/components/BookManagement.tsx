@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Book, Category, Language, WishlistItem, User } from '../types';
 import { translations } from '../utils/translations';
 import { generateBarcodeSVG, generateBookBarcode } from '../utils/barcode';
-import { Search, Plus, Edit2, Trash2, Printer, X, Save, Check, Filter, Camera, Tag, QrCode, Heart, ShoppingBag, Loader2, GripVertical, HelpCircle, FolderOpen, ArrowRight, Bell, Mail } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Printer, X, Save, Check, Filter, Camera, Tag, QrCode, Heart, ShoppingBag, Loader2, GripVertical, HelpCircle, FolderOpen, ArrowRight, Bell, Mail, Download } from 'lucide-react';
 import CameraPhotoTaker from './CameraPhotoTaker';
 import QRCode from 'qrcode';
 import { QRCodeSVG } from 'qrcode.react';
@@ -382,6 +382,26 @@ export default function BookManagement({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const downloadBookQRDirect = (book: Book) => {
+    QRCode.toDataURL(book.barcode, { 
+      margin: 1, 
+      width: 400,
+      color: {
+        dark: '#1e293b',
+        light: '#ffffff'
+      }
+    })
+      .then((url) => {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `QR_${book.barcode}_${book.title.replace(/[^a-zA-Z0-9-]/g, '_')}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      })
+      .catch((err) => console.error(err));
   };
 
   React.useEffect(() => {
@@ -877,17 +897,28 @@ export default function BookManagement({
                         </button>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPrintCodeType('qr');
-                            setBarcodeViewBook(book);
-                          }}
-                          className="cursor-pointer hover:scale-110 transition active:scale-95 flex items-center justify-center"
-                          title={language === 'kh' ? 'មើល និងបោះពុម្ពកូដ QR' : 'View and Print QR Code'}
-                        >
-                          <BookQRCode barcode={book.barcode} />
-                        </button>
+                        <div className="flex flex-col items-center gap-1.5 justify-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPrintCodeType('qr');
+                              setBarcodeViewBook(book);
+                            }}
+                            className="cursor-pointer hover:scale-110 transition active:scale-95 flex items-center justify-center"
+                            title={language === 'kh' ? 'មើល និងបោះពុម្ពកូដ QR' : 'View and Print QR Code'}
+                          >
+                            <BookQRCode barcode={book.barcode} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => downloadBookQRDirect(book)}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-extrabold hover:underline cursor-pointer flex items-center gap-0.5 px-2 py-0.5 bg-slate-50 border border-slate-200/60 rounded-md shadow-sm hover:bg-white transition"
+                            title={language === 'kh' ? 'ទាញយកកូដ QR' : 'Download QR Image'}
+                          >
+                            <Download className="w-2.5 h-2.5 shrink-0" />
+                            <span>{language === 'kh' ? 'ទាញយក' : 'Download'}</span>
+                          </button>
+                        </div>
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-800">
                         <div className="flex items-center gap-3">
@@ -2018,6 +2049,16 @@ export default function BookManagement({
               >
                 {t.cancel}
               </button>
+              {printCodeType === 'qr' && (
+                <button
+                  type="button"
+                  onClick={() => handleDownloadQR(barcodeViewBook)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/10"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {language === 'kh' ? 'ទាញយកកូដ QR' : 'Download QR'}
+                </button>
+              )}
               <button
                 onClick={() => handlePrintBarcode(barcodeViewBook)}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-blue-500/10"

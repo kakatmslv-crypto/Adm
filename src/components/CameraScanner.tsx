@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
 import { Camera, VideoOff, Volume2, VolumeX, X, AlertCircle, RefreshCw, QrCode, Barcode, HelpCircle } from 'lucide-react';
 import { Language } from '../types';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface CameraScannerProps {
   language: Language;
@@ -268,30 +269,128 @@ export default function CameraScanner({
           {isScanning && !errorMsg && (
             <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-4">
               {/* Highlight target box with shadow-masking spotlight effect */}
-              <div 
-                className={`border-2 border-dashed border-blue-400 rounded-2xl flex flex-col items-center justify-center relative bg-blue-500/5 transition-all duration-300 shadow-[0_0_0_9999px_rgba(15,23,42,0.65)] ${
+              <motion.div 
+                layout
+                transition={{ type: 'spring', stiffness: 200, damping: 25 }}
+                className={`relative flex flex-col items-center justify-center bg-transparent transition-all duration-300 shadow-[0_0_0_9999px_rgba(15,23,42,0.72)] border-2 border-dashed ${
+                  scanCooldown 
+                    ? 'border-emerald-400 bg-emerald-500/10' 
+                    : 'border-blue-400/80 bg-blue-500/5'
+                } rounded-3xl ${
                   scanMode === 'qr' 
-                    ? 'w-[65%] aspect-square max-w-[240px]' 
-                    : 'w-[85%] h-[120px] max-w-[340px]'
+                    ? 'w-[68%] aspect-square max-w-[240px]' 
+                    : 'w-[88%] h-[125px] max-w-[340px]'
                 }`}
               >
-                {/* Thick high-contrast corner brackets */}
-                <div className="absolute -top-[2px] -left-[2px] w-5 h-5 border-t-4 border-l-4 border-blue-500 rounded-tl-[10px]" />
-                <div className="absolute -top-[2px] -right-[2px] w-5 h-5 border-t-4 border-r-4 border-blue-500 rounded-tr-[10px]" />
-                <div className="absolute -bottom-[2px] -left-[2px] w-5 h-5 border-b-4 border-l-4 border-blue-500 rounded-bl-[10px]" />
-                <div className="absolute -bottom-[2px] -right-[2px] w-5 h-5 border-b-4 border-r-4 border-blue-500 rounded-br-[10px]" />
-
-                {/* Animated scanning laser line with pulse */}
-                <div className="absolute left-1 right-1 h-[3px] bg-gradient-to-r from-red-500/20 via-red-500 to-red-500/20 animate-bounce shadow-[0_0_8px_rgba(239,68,68,0.8)]" />
-
-                {/* Visual feedback or helper text floating inside or relative to alignment area */}
-                <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-blue-600 text-white font-mono text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full shadow-lg border border-blue-400 whitespace-nowrap animate-pulse">
-                  {scanMode === 'qr' 
-                    ? (language === 'kh' ? 'ដាក់ QR Code ក្នុងប្រអប់' : 'ALIGN QR CODE HERE')
-                    : (language === 'kh' ? 'ដាក់ Barcode ក្នុងប្រអប់' : 'ALIGN BARCODE HERE')
-                  }
+                {/* 1. Subtle high-tech crosshair grid background inside the box */}
+                <div className="absolute inset-2 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px] rounded-2xl opacity-60 overflow-hidden">
+                  {/* Glowing radar concentric circles in background */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                    <div className="w-12 h-12 rounded-full border border-white animate-ping" />
+                    <div className="w-24 h-24 rounded-full border border-white/50 absolute" />
+                  </div>
                 </div>
-              </div>
+
+                {/* 2. Thick high-contrast corner brackets (breathing motion) */}
+                <motion.div
+                  animate={{ scale: [1, 1.04, 1] }}
+                  transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
+                  className="absolute inset-0 pointer-events-none"
+                >
+                  <div className={`absolute -top-[3px] -left-[3px] w-6 h-6 border-t-4 border-l-4 rounded-tl-xl transition-colors duration-300 ${
+                    scanCooldown ? 'border-emerald-500' : 'border-blue-500'
+                  }`} />
+                  <div className={`absolute -top-[3px] -right-[3px] w-6 h-6 border-t-4 border-r-4 rounded-tr-xl transition-colors duration-300 ${
+                    scanCooldown ? 'border-emerald-500' : 'border-blue-500'
+                  }`} />
+                  <div className={`absolute -bottom-[3px] -left-[3px] w-6 h-6 border-b-4 border-l-4 rounded-bl-xl transition-colors duration-300 ${
+                    scanCooldown ? 'border-emerald-500' : 'border-blue-500'
+                  }`} />
+                  <div className={`absolute -bottom-[3px] -right-[3px] w-6 h-6 border-b-4 border-r-4 rounded-br-xl transition-colors duration-300 ${
+                    scanCooldown ? 'border-emerald-500' : 'border-blue-500'
+                  }`} />
+                </motion.div>
+
+                {/* 3. Center alignment reticle */}
+                <div className="absolute flex items-center justify-center opacity-30 pointer-events-none">
+                  <div className="w-4 h-[1px] bg-white absolute" />
+                  <div className="h-4 w-[1px] bg-white absolute" />
+                  <div className="w-2 h-2 rounded-full border border-white" />
+                </div>
+
+                {/* 4. Active Scanning Laser Beam (Or Success Line) */}
+                {!scanCooldown ? (
+                  <motion.div 
+                    animate={{ 
+                      top: ["4%", "94%"] 
+                    }}
+                    transition={{ 
+                      repeat: Infinity, 
+                      repeatType: "reverse", 
+                      duration: 2.0, 
+                      ease: "easeInOut" 
+                    }}
+                    className="absolute left-1.5 right-1.5 h-[3px] bg-gradient-to-r from-transparent via-red-500 to-transparent shadow-[0_0_12px_rgba(239,68,68,1)]"
+                  />
+                ) : (
+                  <motion.div 
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 rounded-2xl"
+                  >
+                    <motion.div
+                      animate={{ scale: [0.8, 1.1, 1] }}
+                      transition={{ duration: 0.3 }}
+                      className="p-2.5 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30"
+                    >
+                      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </motion.div>
+                    <span className="text-[10px] font-black text-emerald-400 mt-2 uppercase tracking-widest font-mono">
+                      {language === 'kh' ? 'ស្កេនជោគជ័យ' : 'SCAN SUCCESSFUL'}
+                    </span>
+                  </motion.div>
+                )}
+
+                {/* 5. Live scanner state indicator (blinking green LED + "LENS ACTIVE") */}
+                {!scanCooldown && (
+                  <div className="absolute top-2 left-3 flex items-center gap-1.5 bg-slate-900/85 px-2 py-0.5 rounded-md border border-white/10 shadow-xs">
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping" />
+                    <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full absolute" />
+                    <span className="text-[8px] font-black text-slate-300 tracking-widest uppercase font-mono">
+                      {language === 'kh' ? 'កាមេរ៉ាសកម្ម' : 'LENS ACTIVE'}
+                    </span>
+                  </div>
+                )}
+
+                {/* 6. Scan Mode Pill inside the box */}
+                {!scanCooldown && (
+                  <div className="absolute top-2 right-3 flex items-center gap-1 bg-slate-900/85 px-2 py-0.5 rounded-md border border-white/10 shadow-xs text-slate-300 font-mono text-[8px] font-black uppercase tracking-wider">
+                    {scanMode === 'qr' ? 'QR-3D' : 'ISBN-1D'}
+                  </div>
+                )}
+
+                {/* 7. Bottom guidance helper with responsive styling */}
+                <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5">
+                  <motion.div 
+                    animate={scanCooldown ? { y: 0, scale: 1 } : { y: [0, -3, 0] }}
+                    transition={{ repeat: scanCooldown ? 0 : Infinity, duration: 1.5, ease: "easeInOut" }}
+                    className={`font-mono text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-lg border transition-all duration-300 whitespace-nowrap ${
+                      scanCooldown 
+                        ? 'bg-emerald-600 text-white border-emerald-400' 
+                        : 'bg-blue-600 text-white border-blue-400'
+                    }`}
+                  >
+                    {scanCooldown 
+                      ? (language === 'kh' ? 'កំពុងបញ្ចូលទិន្នន័យ...' : 'REGISTERING DATA...')
+                      : scanMode === 'qr' 
+                        ? (language === 'kh' ? 'ដាក់ QR Code ក្នុងប្រអប់' : 'ALIGN QR CODE HERE')
+                        : (language === 'kh' ? 'ដាក់ Barcode ក្នុងប្រអប់' : 'ALIGN BARCODE HERE')
+                    }
+                  </motion.div>
+                </div>
+              </motion.div>
             </div>
           )}
 
