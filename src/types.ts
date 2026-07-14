@@ -9,6 +9,7 @@ export interface Book {
   location?: string;
   addedDate: string;
   coverImage?: string; // base64 data URL or external URL
+  images?: string[]; // Multiple additional photos for the book
   notificationEmail?: string;
   notificationNotes?: string;
 }

@@ -221,8 +221,8 @@ export default function Dashboard({
               </h1>
               <p className="text-xs text-slate-300 font-medium mt-1">
                 {language === 'kh'
-                  ? 'រីករាយស្វាគមន៍មកកាន់គណនីបណ្ណាល័យផ្ទាល់ខ្លួនរបស់អ្នក។'
-                  : 'Welcome to your personalized library service dashboard.'}
+                  ? 'សូមស្វាគមន៍មកកាន់បណ្ណាល័យសាលាយើងខ្ញុំ! រីករាយស្វាគមន៍មកកាន់គណនីបណ្ណាល័យផ្ទាល់ខ្លួនរបស់អ្នក។'
+                  : 'Welcome to our school library! Welcome to your personalized library service dashboard.'}
               </p>
             </div>
           </div>
@@ -781,6 +781,30 @@ export default function Dashboard({
               {language === 'kh' ? formatKhmerDate(currentTime) : formatEnglishDate(currentTime)}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* School Library Welcome Banner */}
+      <div className="bg-gradient-to-r from-emerald-500/10 via-blue-500/10 to-indigo-500/10 border border-emerald-500/20 rounded-3xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm backdrop-blur-sm">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-emerald-500 text-white rounded-2xl shadow-md shrink-0">
+            <BookOpen className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-lg font-black text-slate-800 tracking-tight">
+              {language === 'kh' ? 'សូមស្វាគមន៍មកកាន់បណ្ណាល័យសាលាយើងខ្ញុំ!' : 'Welcome to our school library!'}
+            </h2>
+            <p className="text-xs text-slate-500 font-bold mt-1">
+              {language === 'kh' 
+                ? 'យើងខ្ញុំរីករាយក្នុងការផ្តល់ជូនសៀវភៅ និងឯកសារស្រាវជ្រាវគ្រប់ប្រភេទសម្រាប់សិស្សានុសិស្សទាំងអស់គ្នា។' 
+                : 'We are delighted to provide books and resources of all kinds to expand the horizons of our students.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-xl border border-emerald-200/50">
+            {language === 'kh' ? 'បណ្ណាល័យសកម្ម' : 'Active Library'}
+          </span>
         </div>
       </div>
 

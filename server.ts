@@ -3,6 +3,7 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import fs from 'fs';
 import {
   defaultCategories,
   defaultBooks,
@@ -16,6 +17,41 @@ import {
 dotenv.config();
 
 let pool: mysql.Pool | null = null;
+let isDbOffline = false;
+
+const OFFLINE_DB_PATH = path.join(process.cwd(), 'offline_db.json');
+
+// Initialize memory store with deep copies of default datasets
+let offlineStore: { [key: string]: any[] } = {
+  categories: JSON.parse(JSON.stringify(defaultCategories)),
+  books: JSON.parse(JSON.stringify(defaultBooks)),
+  students: JSON.parse(JSON.stringify(defaultStudents)),
+  records: JSON.parse(JSON.stringify(defaultBorrowRecords)),
+  wishlist: JSON.parse(JSON.stringify(defaultWishlist)),
+  roles: JSON.parse(JSON.stringify(defaultRoles)),
+  users: JSON.parse(JSON.stringify(defaultUsers)),
+};
+
+// Load offline db from file if it exists
+try {
+  if (fs.existsSync(OFFLINE_DB_PATH)) {
+    const fileData = fs.readFileSync(OFFLINE_DB_PATH, 'utf-8');
+    const parsed = JSON.parse(fileData);
+    offlineStore = { ...offlineStore, ...parsed };
+    console.log("Loaded offline database from local file system.");
+  }
+} catch (e: any) {
+  console.log("Error loading offline database from file:", e.message);
+}
+
+// Function to persist offline db
+function saveOfflineDb() {
+  try {
+    fs.writeFileSync(OFFLINE_DB_PATH, JSON.stringify(offlineStore, null, 2), 'utf-8');
+  } catch (e: any) {
+    console.error("Failed to save offline database to file:", e.message);
+  }
+}
 
 // Lazy initialization of MySQL connection pool
 async function getMysqlPool() {
@@ -122,6 +158,7 @@ async function ensureTablesExist() {
         phone_number VARCHAR(100) NOT NULL,
         email VARCHAR(255) NULL,
         password VARCHAR(255) NULL,
+        photo LONGTEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_student_id (student_id),
@@ -135,6 +172,9 @@ async function ensureTablesExist() {
     } catch (e) {}
     try {
       await runQuery(`ALTER TABLE students ADD COLUMN password VARCHAR(255) NULL`);
+    } catch (e) {}
+    try {
+      await runQuery(`ALTER TABLE students ADD COLUMN photo LONGTEXT NULL`);
     } catch (e) {}
 
     await runQuery(`
@@ -200,6 +240,7 @@ async function ensureTablesExist() {
     console.log("MySQL Database schema initialized successfully.");
     await seedDefaultData();
   } catch (err: any) {
+    isDbOffline = true;
     console.log("MySQL Database is currently offline or unreachable (" + err.message + "). Serving application with offline/Firebase Firestore fallback.");
   }
 }
@@ -344,10 +385,15 @@ app.use(express.json({ limit: '50mb' }));
 // -----------------------------------------------------------------------------
 app.get('/api/mysql-status', async (req, res) => {
   try {
+    if (isDbOffline) {
+      res.json({ connected: false, error: "Database is currently running in offline fallback mode." });
+      return;
+    }
     const poolConnection = await getMysqlPool();
     const [rows] = await poolConnection.execute('SELECT 1');
     res.json({ connected: true, msg: "Database connection active." });
   } catch (err: any) {
+    isDbOffline = true;
     res.json({ connected: false, error: err.message || "Unable to reach database server." });
   }
 });
@@ -361,8 +407,39 @@ app.post('/api/sync', async (req, res) => {
     return res.status(400).json({ success: false, error: "Invalid sync request format." });
   }
 
-  let connection: mysql.PoolConnection | null = null;
   const syncedIds: string[] = [];
+
+  if (isDbOffline) {
+    try {
+      for (const mutation of mutations) {
+        const { id, entity, action, data } = mutation;
+        if (!entity || !action || !data) {
+          continue;
+        }
+        const list = offlineStore[entity] || [];
+        if (action === 'delete') {
+          const targetId = typeof data === 'object' ? data.id : data;
+          offlineStore[entity] = list.filter((item: any) => item.id !== targetId);
+        } else {
+          const existingIdx = list.findIndex((item: any) => item.id === data.id);
+          if (existingIdx >= 0) {
+            list[existingIdx] = data;
+          } else {
+            list.push(data);
+          }
+          offlineStore[entity] = list;
+        }
+        syncedIds.push(id);
+      }
+      saveOfflineDb();
+      res.json({ success: true, syncedIds });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+    return;
+  }
+
+  let connection: mysql.PoolConnection | null = null;
 
   try {
     const dbPool = await getMysqlPool();
@@ -421,6 +498,11 @@ entities.forEach(entity => {
   // GET ALL
   app.get(`/api/${entity}`, async (req, res) => {
     try {
+      if (isDbOffline) {
+        const rows = offlineStore[entity] || [];
+        res.json(toCamel(rows));
+        return;
+      }
       const rows: any = await runQuery(`SELECT * FROM \`${table}\``);
       // Map permissions parsing for roles
       if (entity === 'roles') {
@@ -446,6 +528,20 @@ entities.forEach(entity => {
       const error = validateData(entity, req.body);
       if (error) return res.status(400).json({ error });
 
+      if (isDbOffline) {
+        const list = offlineStore[entity] || [];
+        const existingIdx = list.findIndex((item: any) => item.id === req.body.id);
+        if (existingIdx >= 0) {
+          list[existingIdx] = req.body;
+        } else {
+          list.push(req.body);
+        }
+        offlineStore[entity] = list;
+        saveOfflineDb();
+        res.status(201).json(req.body);
+        return;
+      }
+
       const dbPool = await getMysqlPool();
       const connection = await dbPool.getConnection();
       try {
@@ -465,6 +561,20 @@ entities.forEach(entity => {
       const error = validateData(entity, req.body);
       if (error) return res.status(400).json({ error });
 
+      if (isDbOffline) {
+        const list = offlineStore[entity] || [];
+        const existingIdx = list.findIndex((item: any) => item.id === req.params.id);
+        if (existingIdx >= 0) {
+          list[existingIdx] = req.body;
+        } else {
+          list.push(req.body);
+        }
+        offlineStore[entity] = list;
+        saveOfflineDb();
+        res.json(req.body);
+        return;
+      }
+
       const dbPool = await getMysqlPool();
       const connection = await dbPool.getConnection();
       try {
@@ -481,6 +591,13 @@ entities.forEach(entity => {
   // DELETE
   app.delete(`/api/${entity}/:id`, async (req, res) => {
     try {
+      if (isDbOffline) {
+        const list = offlineStore[entity] || [];
+        offlineStore[entity] = list.filter((item: any) => item.id !== req.params.id);
+        saveOfflineDb();
+        res.json({ success: true });
+        return;
+      }
       await runQuery(`DELETE FROM \`${table}\` WHERE id = ?`, [req.params.id]);
       res.json({ success: true });
     } catch (err: any) {
@@ -494,6 +611,21 @@ entities.forEach(entity => {
 // -----------------------------------------------------------------------------
 app.post('/api/seed', async (req, res) => {
   try {
+    if (isDbOffline) {
+      offlineStore = {
+        categories: JSON.parse(JSON.stringify(defaultCategories)),
+        books: JSON.parse(JSON.stringify(defaultBooks)),
+        students: JSON.parse(JSON.stringify(defaultStudents)),
+        records: JSON.parse(JSON.stringify(defaultBorrowRecords)),
+        wishlist: JSON.parse(JSON.stringify(defaultWishlist)),
+        roles: JSON.parse(JSON.stringify(defaultRoles)),
+        users: JSON.parse(JSON.stringify(defaultUsers)),
+      };
+      saveOfflineDb();
+      res.json({ success: true, message: "Offline database successfully re-seeded with pristine default datasets." });
+      return;
+    }
+
     const dbPool = await getMysqlPool();
     const connection = await dbPool.getConnection();
     try {

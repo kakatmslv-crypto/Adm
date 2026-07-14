@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Book, Category, Language, WishlistItem, User } from '../types';
 import { translations } from '../utils/translations';
 import { generateBarcodeSVG, generateBookBarcode } from '../utils/barcode';
-import { Search, Plus, Edit2, Trash2, Printer, X, Save, Check, Filter, Camera, Tag, QrCode, Heart, ShoppingBag, Loader2, GripVertical, HelpCircle, FolderOpen, ArrowRight, Bell, Mail, Download } from 'lucide-react';
+import { Search, Plus, Edit2, Trash2, Printer, X, Save, Check, Filter, Camera, Tag, QrCode, Heart, ShoppingBag, Loader2, GripVertical, HelpCircle, FolderOpen, ArrowRight, Bell, Mail, Download, Upload } from 'lucide-react';
 import CameraPhotoTaker from './CameraPhotoTaker';
 import QRCode from 'qrcode';
 import { QRCodeSVG } from 'qrcode.react';
@@ -35,6 +35,8 @@ interface BookManagementProps {
   initialSearchTerm?: string;
   onClearSearch?: () => void;
   currentUser?: User | null;
+  onShowSuccess?: (msg: string) => void;
+  onShowError?: (msg: string) => void;
 }
 
 interface BookQRCodeProps {
@@ -68,6 +70,8 @@ export default function BookManagement({
   initialSearchTerm,
   onClearSearch,
   currentUser,
+  onShowSuccess,
+  onShowError,
 }: BookManagementProps) {
   const t = translations[language];
   const isStudent = currentUser?.role === 'student';
@@ -288,6 +292,7 @@ export default function BookManagement({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  const keepFormOpenRef = React.useRef(false);
 
   // Form Fields
   const [title, setTitle] = useState('');
@@ -297,6 +302,8 @@ export default function BookManagement({
   const [location, setLocation] = useState('');
   const [status, setStatus] = useState<'available' | 'borrowed' | 'lost' | 'overdue'>('available');
   const [coverImage, setCoverImage] = useState('');
+  const [images, setImages] = useState<string[]>([]);
+  const [photoTarget, setPhotoTarget] = useState<'cover' | 'additional'>('cover');
   const [isPhotoTakerOpen, setIsPhotoTakerOpen] = useState(false);
 
   // Barcode View modal state
@@ -321,6 +328,13 @@ export default function BookManagement({
   const [alertEmail, setAlertEmail] = useState('');
   const [alertNotes, setAlertNotes] = useState('');
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+
+  // CSV Bulk Import for Books
+  const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [csvParsingError, setCsvParsingError] = useState<string | null>(null);
+  const [csvPreviewData, setCsvPreviewData] = useState<any[]>([]);
 
   const openAlertModal = (book: Book) => {
     setAlertBook(book);
@@ -595,6 +609,192 @@ export default function BookManagement({
     return matchesSearch && matchesCategory && matchesStatus;
   });
 
+  // CSV Parser Helper
+  const parseCSV = (text: string): string[][] => {
+    const lines: string[][] = [];
+    let row: string[] = [];
+    let inQuotes = false;
+    let currentValue = "";
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      const nextChar = text[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          currentValue += '"';
+          i++; // Skip next quote
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        row.push(currentValue.trim());
+        currentValue = "";
+      } else if ((char === '\r' || char === '\n') && !inQuotes) {
+        if (char === '\r' && nextChar === '\n') {
+          i++; // Skip \n
+        }
+        row.push(currentValue.trim());
+        if (row.length > 0 && (row.length > 1 || row[0] !== "")) {
+          lines.push(row);
+        }
+        row = [];
+        currentValue = "";
+      } else {
+        currentValue += char;
+      }
+    }
+
+    if (currentValue !== "" || row.length > 0) {
+      row.push(currentValue.trim());
+      if (row.length > 0 && (row.length > 1 || row[0] !== "")) {
+        lines.push(row);
+      }
+    }
+
+    return lines;
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const headers = language === 'kh'
+      ? 'ចំណងជើងសៀវភៅ,អ្នកនិពន្ធ,ឆ្នាំបោះពុម្ព,ប្រភេទសៀវភៅ,ទីតាំងសៀវភៅ\nគណិតវិទ្យា ថ្នាក់ទី១២,ក្រសួងអប់រំ,២០២២,Mathematics,បន្ទប់ A1\nរូបវិទ្យា ថ្នាក់ទី១១,ក្រសួងអប់រំ,២០២១,Science,Shelf B3'
+      : 'Book Title,Author,Publish Year,Category Name or ID,Location\nMathematics Grade 12,Ministry of Education,2022,Mathematics,Room A1\nPhysics Grade 11,Ministry of Education,2021,Science,Shelf B3';
+    
+    const blob = new Blob([headers], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'book_bulk_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCsvFileSelect = (file: File) => {
+    setCsvFile(file);
+    setCsvParsingError(null);
+    setCsvPreviewData([]);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        if (!text) throw new Error(language === 'kh' ? 'ឯកសារគ្មានទិន្នន័យ!' : 'File is empty!');
+
+        const rows = parseCSV(text);
+        if (rows.length < 2) {
+          throw new Error(language === 'kh' ? 'ឯកសារត្រូវមានយ៉ាងហោចណាស់ជួរក្បាល និងទិន្នន័យមួយជួរ!' : 'CSV must contain a header row and at least one data row!');
+        }
+
+        const headers = rows[0].map(h => h.toLowerCase());
+        
+        // Find indices
+        const titleIdx = headers.findIndex(h => h.includes('title') || h.includes('ចំណងជើង'));
+        const authorIdx = headers.findIndex(h => h.includes('author') || h.includes('អ្នកនិពន្ធ'));
+        const yearIdx = headers.findIndex(h => h.includes('year') || h.includes('ឆ្នាំ'));
+        const catIdx = headers.findIndex(h => h.includes('category') || h.includes('ប្រភេទ'));
+        const locIdx = headers.findIndex(h => h.includes('location') || h.includes('ទីតាំង'));
+
+        if (titleIdx === -1 || authorIdx === -1) {
+          throw new Error(language === 'kh' 
+            ? 'ឯកសារ CSV ត្រូវតែមានជួរឈរ "ចំណងជើងសៀវភៅ" និង "អ្នកនិពន្ធ"!' 
+            : 'CSV must contain at least "Book Title" and "Author" columns!');
+        }
+
+        const parsedBooks: any[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (row.length < 2) continue; // Skip empty rows
+
+          const rowTitle = row[titleIdx];
+          const rowAuthor = row[authorIdx] || (language === 'kh' ? 'មិនស្គាល់អ្នកនិពន្ធ' : 'Unknown Author');
+          const rowYear = yearIdx !== -1 ? parseInt(row[yearIdx]) || new Date().getFullYear() : new Date().getFullYear();
+          const rowCatStr = catIdx !== -1 ? row[catIdx] : '';
+          const rowLoc = locIdx !== -1 ? row[locIdx] : '';
+
+          // Match category string to existing categories, or fallback to first category
+          let matchedCatId = categories[0]?.id || '';
+          if (rowCatStr) {
+            const cleanCatStr = rowCatStr.toLowerCase();
+            const matchedCat = categories.find(c => 
+              c.id.toLowerCase() === cleanCatStr ||
+              c.nameEn.toLowerCase() === cleanCatStr ||
+              c.nameKh.toLowerCase() === cleanCatStr
+            );
+            if (matchedCat) {
+              matchedCatId = matchedCat.id;
+            }
+          }
+
+          parsedBooks.push({
+            title: rowTitle,
+            author: rowAuthor,
+            publishYear: rowYear,
+            categoryId: matchedCatId,
+            location: rowLoc
+          });
+        }
+
+        if (parsedBooks.length === 0) {
+          throw new Error(language === 'kh' ? 'រកមិនឃើញសៀវភៅដែលមានសុពលភាពដើម្បីនាំចូលទេ!' : 'No valid books found to import!');
+        }
+
+        setCsvPreviewData(parsedBooks);
+      } catch (err: any) {
+        setCsvParsingError(err.message || 'Error parsing CSV file');
+      }
+    };
+    reader.onerror = () => {
+      setCsvParsingError(language === 'kh' ? 'កំហុសក្នុងការអានឯកសារ!' : 'Error reading file!');
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const handleConfirmCsvImport = () => {
+    if (csvPreviewData.length === 0) return;
+
+    // Track sequential book count per category to generate correct barcode sequence
+    const categoryCounts: { [catId: string]: number } = {};
+    categories.forEach(c => {
+      categoryCounts[c.id] = books.filter(b => b.categoryId === c.id).length;
+    });
+
+    csvPreviewData.forEach((item, index) => {
+      const catId = item.categoryId;
+      const count = categoryCounts[catId] || 0;
+      categoryCounts[catId] = count + 1;
+
+      const cat = categories.find((c) => c.id === catId);
+      const prefix = cat ? cat.id.replace('cat-', '').toUpperCase() : 'BK';
+      const barcode = generateBookBarcode(prefix, count);
+
+      const newBook: Book = {
+        id: `book-${Date.now()}-${index}`,
+        title: item.title,
+        barcode,
+        categoryId: catId,
+        author: item.author,
+        publishYear: item.publishYear,
+        status: 'available',
+        location: item.location,
+        addedDate: new Date().toISOString().split('T')[0],
+        coverImage: '',
+        images: [],
+      };
+      onAddBook(newBook);
+    });
+
+    onShowSuccess?.(
+      language === 'kh'
+        ? `បាននាំចូលសៀវភៅចំនួន ${csvPreviewData.length} ក្បាលដោយជោគជ័យ!`
+        : `Successfully imported ${csvPreviewData.length} books!`
+    );
+
+    setIsCsvModalOpen(false);
+    setCsvFile(null);
+    setCsvPreviewData([]);
+  };
+
   const openAddModal = () => {
     setIsEditMode(false);
     setEditingBookId(null);
@@ -605,6 +805,7 @@ export default function BookManagement({
     setLocation('');
     setStatus('available');
     setCoverImage('');
+    setImages([]);
     setIsModalOpen(true);
   };
 
@@ -618,6 +819,7 @@ export default function BookManagement({
     setLocation(book.location || '');
     setStatus(book.status);
     setCoverImage(book.coverImage || '');
+    setImages(book.images || []);
     setIsModalOpen(true);
   };
 
@@ -638,7 +840,9 @@ export default function BookManagement({
         location,
         status,
         coverImage,
+        images,
       });
+      setIsModalOpen(false);
     } else {
       // Auto generate barcode based on category prefix
       const cat = categories.find((c) => c.id === categoryId);
@@ -657,10 +861,22 @@ export default function BookManagement({
         location,
         addedDate: new Date().toISOString().split('T')[0],
         coverImage,
+        images,
       };
       onAddBook(newBook);
+
+      if (keepFormOpenRef.current) {
+        // Clear only non-reusable fields for fast subsequent data entry
+        setTitle('');
+        setAuthor('');
+        setPublishYear(new Date().getFullYear());
+        setLocation('');
+        setCoverImage('');
+        setImages([]);
+      } else {
+        setIsModalOpen(false);
+      }
     }
-    setIsModalOpen(false);
   };
 
   const handlePrintBarcode = (book: Book) => {
@@ -848,6 +1064,20 @@ export default function BookManagement({
               >
                 <QrCode className="w-4 h-4 text-indigo-200" />
                 {language === 'kh' ? 'បោះពុម្ពស្លាកជាក្រុម' : 'Bulk Print Labels'}
+              </button>
+
+              <button
+                id="bulk-import-csv-btn"
+                onClick={() => {
+                  setCsvFile(null);
+                  setCsvParsingError(null);
+                  setCsvPreviewData([]);
+                  setIsCsvModalOpen(true);
+                }}
+                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-4 py-2.5 rounded-2xl shadow-md hover:shadow-lg hover:shadow-emerald-500/10 transition duration-150 cursor-pointer"
+              >
+                <Upload className="w-4 h-4 text-emerald-200" />
+                {language === 'kh' ? 'នាំចូលពី CSV' : 'Bulk Import CSV'}
               </button>
 
               <button
@@ -1717,7 +1947,10 @@ export default function BookManagement({
                   <div className="flex flex-col gap-2">
                     <button
                       type="button"
-                      onClick={() => setIsPhotoTakerOpen(true)}
+                      onClick={() => {
+                        setPhotoTarget('cover');
+                        setIsPhotoTakerOpen(true);
+                      }}
                       className="text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition cursor-pointer"
                     >
                       {language === 'kh' ? 'ប្រើកាមេរ៉ា' : 'Use Camera'}
@@ -1748,6 +1981,90 @@ export default function BookManagement({
                 </div>
               </div>
 
+              {/* Additional Photos Section */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Upload className="w-3.5 h-3.5 text-indigo-500" />
+                  {language === 'kh' ? 'រូបភាពបន្ថែមច្រើនទៀត (រូបទំព័រក្នង, បារកូដ, ...)' : 'Additional Photos (Pages, barcode, status)'}
+                  <span className="text-[10px] text-slate-400 font-normal lowercase">
+                    ({images.length} {language === 'kh' ? 'រូបភាព' : 'photos'})
+                  </span>
+                </label>
+                
+                <div className="space-y-3 p-4 bg-white/20 backdrop-blur-sm border border-white/60 rounded-2xl">
+                  {/* Thumbnails grid */}
+                  {images.length > 0 && (
+                    <div className="grid grid-cols-4 gap-2.5">
+                      {images.map((img, idx) => (
+                        <div key={idx} className="relative aspect-[3/4] bg-white rounded-xl border border-slate-200/60 overflow-hidden shadow-sm group">
+                          <img
+                            src={img}
+                            alt={`Additional ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImages(prev => prev.filter((_, i) => i !== idx));
+                            }}
+                            className="absolute top-1 right-1 p-1 bg-red-500 hover:bg-red-600 text-white rounded-full transition shadow-md opacity-90 hover:opacity-100 cursor-pointer"
+                            title={language === 'kh' ? 'លុបរូបភាពនេះ' : 'Remove image'}
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Drag-and-drop & browse area */}
+                  <div className="flex gap-2">
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        files.forEach(file => {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setImages(prev => [...prev, reader.result as string]);
+                          };
+                          reader.readAsDataURL(file);
+                        });
+                      }}
+                      className="hidden"
+                      id="additional-images-upload"
+                    />
+                    <label
+                      htmlFor="additional-images-upload"
+                      className="flex-1 cursor-pointer flex flex-col items-center justify-center p-3 border border-dashed border-slate-300 hover:border-indigo-400 bg-white/50 hover:bg-white rounded-xl transition text-center space-y-1 group"
+                    >
+                      <Upload className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                      <span className="text-[10px] font-bold text-slate-600 group-hover:text-indigo-600">
+                        {language === 'kh' ? 'ជ្រើសរើសរូបភាពច្រើន' : 'Upload Multiple'}
+                      </span>
+                      <span className="text-[8px] text-slate-400">
+                        {language === 'kh' ? 'រូបភាពទំព័រមាតិកា ឬស្ថានភាពសៀវភៅ' : 'Index page or book condition'}
+                      </span>
+                    </label>
+
+                    {/* Camera snapshot option for additional images */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPhotoTarget('additional');
+                        setIsPhotoTakerOpen(true);
+                      }}
+                      className="cursor-pointer text-xs font-bold text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition text-center flex flex-col justify-center items-center gap-1 shrink-0 w-20"
+                    >
+                      <Camera className="w-4 h-4 text-indigo-500" />
+                      <span className="text-[10px] font-bold">{language === 'kh' ? 'ថតរូប' : 'Camera'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Informative info about barcode */}
               {!isEditMode && (
                 <div className="bg-blue-50/60 backdrop-blur rounded-xl p-3 text-xs text-blue-800 font-bold border border-white/40 flex items-center gap-2">
@@ -1768,8 +2085,19 @@ export default function BookManagement({
                 >
                   {t.cancel}
                 </button>
+                {!isEditMode && (
+                  <button
+                    type="submit"
+                    onClick={() => { keepFormOpenRef.current = true; }}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/10"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {language === 'kh' ? 'រក្សាទុក និងបន្ថែមថ្មីទៀត' : 'Save & Add New'}
+                  </button>
+                )}
                 <button
                   type="submit"
+                  onClick={() => { keepFormOpenRef.current = false; }}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-blue-500/10"
                 >
                   <Save className="w-3.5 h-3.5" />
@@ -2496,8 +2824,14 @@ export default function BookManagement({
       {isPhotoTakerOpen && (
         <CameraPhotoTaker
           language={language}
-          initialPhoto={coverImage}
-          onPhotoCaptured={(base64) => setCoverImage(base64)}
+          initialPhoto={photoTarget === 'cover' ? coverImage : undefined}
+          onPhotoCaptured={(base64) => {
+            if (photoTarget === 'cover') {
+              setCoverImage(base64);
+            } else {
+              setImages(prev => [...prev, base64]);
+            }
+          }}
           onClose={() => setIsPhotoTakerOpen(false)}
         />
       )}
@@ -2607,6 +2941,195 @@ export default function BookManagement({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Bulk Import Modal Overlay */}
+      {isCsvModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/45 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="glass-panel-heavy rounded-3xl max-w-xl w-full shadow-2xl border border-white/80 overflow-hidden transform transition duration-200 flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="px-6 py-4 bg-white/40 backdrop-blur-md border-b border-white/40 flex justify-between items-center shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider">
+                    {language === 'kh' ? 'នាំចូលសៀវភៅជាក្រុមតាម CSV' : 'Bulk Import Books via CSV'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-bold">
+                    {language === 'kh' ? 'បញ្ចូលឯកសារ CSV ដើម្បីចុះឈ្មោះសៀវភៅច្រើនក្បាលក្នុងពេលតែមួយ' : 'Upload a CSV file to add multiple books at once'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCsvModalOpen(false)}
+                className="text-slate-500 hover:text-slate-800 rounded-full p-1 bg-white/40 hover:bg-white/70 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1 flex flex-col min-h-0">
+              {/* Instructions and Download Template Link */}
+              <div className="bg-slate-50/70 border border-slate-150 rounded-2xl p-4 text-xs space-y-2">
+                <div className="flex justify-between items-start gap-2 flex-wrap">
+                  <div>
+                    <p className="font-extrabold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
+                      {language === 'kh' ? 'ការណែនាំអំពីទម្រង់ឯកសារ' : 'File Format Instructions'}
+                    </p>
+                    <p className="text-slate-500 leading-relaxed font-semibold font-sans">
+                      {language === 'kh' 
+                        ? 'ឯកសារ CSV របស់អ្នកគួរតែមានជួរឈរដូចជា៖ ចំណងជើងសៀវភៅ, អ្នកនិពន្ធ, ឆ្នាំបោះពុម្ព, ប្រភេទសៀវភៅ, ទីតាំងសៀវភៅ។' 
+                        : 'Your CSV should include columns like: Book Title, Author, Publish Year, Category Name or ID, Location.'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 font-bold mt-1">
+                      {language === 'kh'
+                        ? '* សម្គាល់៖ ចំណងជើងសៀវភៅ និង អ្នកនិពន្ធ គឺតម្រូវឱ្យមានជាដាច់ខាត។'
+                        : '* Note: Book Title and Author are required fields.'}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadSampleCsv}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-black text-[10px] uppercase tracking-wider rounded-xl border border-emerald-150 transition shrink-0 cursor-pointer animate-pulse"
+                  >
+                    <Download className="w-3 h-3" />
+                    <span>{language === 'kh' ? 'ទាញយកគំរូ CSV' : 'Get Template CSV'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Drag and Drop Zone */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  const files = Array.from(e.dataTransfer.files);
+                  if (files.length > 0 && files[0].name.endsWith('.csv')) {
+                    handleCsvFileSelect(files[0]);
+                  } else {
+                    setCsvParsingError(language === 'kh' ? 'សូមជ្រើសរើសតែឯកសារ CSV ប៉ុណ្ណោះ!' : 'Please select a valid CSV file!');
+                  }
+                }}
+                className={`border-2 border-dashed rounded-2xl p-6 text-center transition flex flex-col items-center justify-center gap-2 cursor-pointer ${
+                  dragOver
+                    ? 'border-emerald-500 bg-emerald-50/20'
+                    : 'border-slate-200 hover:border-emerald-400 bg-white/20'
+                }`}
+                onClick={() => document.getElementById('book-csv-file-input')?.click()}
+              >
+                <input
+                  type="file"
+                  id="book-csv-file-input"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length > 0) handleCsvFileSelect(files[0]);
+                  }}
+                />
+                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-500 flex items-center justify-center border border-emerald-100">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-700">
+                    {csvFile 
+                      ? (language === 'kh' ? `បានជ្រើសរើស៖ ${csvFile.name}` : `Selected: ${csvFile.name}`)
+                      : (language === 'kh' ? 'អូសទម្លាក់ឯកសារ CSV ទីនេះ ឬ ចុចដើម្បីស្វែងរក' : 'Drag & drop CSV file here, or click to browse')}
+                  </p>
+                  {csvFile && (
+                    <p className="text-[10px] text-slate-400 font-semibold mt-1">
+                      {(csvFile.size / 1024).toFixed(1)} KB
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {csvParsingError && (
+                <div className="p-3 bg-red-50 border border-red-150 rounded-xl text-xs text-red-600 font-bold">
+                  {csvParsingError}
+                </div>
+              )}
+
+              {/* Preview and validation area */}
+              {csvPreviewData.length > 0 && (
+                <div className="flex-1 flex flex-col min-h-0 space-y-2">
+                  <p className="text-xs font-black text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                    <span>{language === 'kh' ? 'ការពិនិត្យមើលទិន្នន័យជាមុន' : 'Import Preview & Validation'}</span>
+                    <span className="text-[10px] text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full font-bold lowercase">
+                      {csvPreviewData.length} {language === 'kh' ? 'ក្បាលសៀវភៅ' : 'books'}
+                    </span>
+                  </p>
+                  
+                  <div className="flex-1 border border-slate-150 rounded-2xl overflow-hidden bg-white/50 backdrop-blur min-h-[150px] overflow-y-auto">
+                    <table className="min-w-full divide-y divide-slate-100 text-xs font-sans">
+                      <thead className="bg-slate-50 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left font-extrabold text-slate-500 uppercase tracking-wider">{t.bookTitle}</th>
+                          <th className="px-4 py-2.5 text-left font-extrabold text-slate-500 uppercase tracking-wider">{language === 'kh' ? 'អ្នកនិពន្ធ' : 'Author'}</th>
+                          <th className="px-4 py-2.5 text-left font-extrabold text-slate-500 uppercase tracking-wider">{t.publishYear}</th>
+                          <th className="px-4 py-2.5 text-left font-extrabold text-slate-500 uppercase tracking-wider">{t.category}</th>
+                          <th className="px-4 py-2.5 text-left font-extrabold text-slate-500 uppercase tracking-wider">{language === 'kh' ? 'ទីតាំង' : 'Location'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-150 bg-white/30 text-slate-600">
+                        {csvPreviewData.map((row, idx) => {
+                          const cat = categories.find(c => c.id === row.categoryId);
+                          return (
+                            <tr key={idx} className="hover:bg-white/40">
+                              <td className="px-4 py-2 font-bold text-slate-800 max-w-[150px] truncate">{row.title}</td>
+                              <td className="px-4 py-2 max-w-[100px] truncate">{row.author}</td>
+                              <td className="px-4 py-2 font-semibold">{row.publishYear}</td>
+                              <td className="px-4 py-2">
+                                <span className="px-1.5 py-0.5 bg-slate-100 rounded-md font-semibold text-[10px]">
+                                  {cat ? (language === 'kh' ? cat.nameKh : cat.nameEn) : 'Default'}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 truncate max-w-[80px]">{row.location || '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-150/60 flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCsvModalOpen(false);
+                  setCsvFile(null);
+                  setCsvPreviewData([]);
+                }}
+                className="px-4 py-2 border border-slate-200 hover:bg-slate-100 text-slate-600 rounded-xl text-xs font-bold transition cursor-pointer bg-white"
+              >
+                {t.cancel}
+              </button>
+              <button
+                type="button"
+                disabled={csvPreviewData.length === 0}
+                onClick={handleConfirmCsvImport}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:text-slate-400 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/10"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>{language === 'kh' ? 'បញ្ជាក់ការនាំចូល' : 'Confirm Import'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

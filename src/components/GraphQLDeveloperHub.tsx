@@ -142,6 +142,90 @@ export default function GraphQLDeveloperHub({
     borrowDate
   }
 }`
+    },
+    {
+      nameEn: "6. Get Social Posts (Query)",
+      nameKh: "៦. ទាញយកអត្ថបទ Posts (Query)",
+      query: `query GetPosts($limit: Int, $offset: Int, $status: String) {
+  posts(limit: $limit, offset: $offset, status: $status) {
+    id
+    title
+    content
+    status
+    author {
+      id
+      username
+      fullName
+    }
+    comments {
+      id
+      content
+      author {
+        username
+      }
+    }
+    likesCount
+  }
+}`,
+      variables: `{\n  "limit": 3,\n  "offset": 0,\n  "status": "published"\n}`
+    },
+    {
+      nameEn: "7. Create Social Post (Mutation)",
+      nameKh: "៧. បង្កើតអត្ថបទ Post ថ្មី (Mutation)",
+      query: `mutation CreatePost($title: String!, $content: String!, $tags: [String!]) {
+  createPost(
+    title: $title
+    content: $content
+    tags: $tags
+  ) {
+    id
+    title
+    content
+    status
+    tags {
+      id
+      name
+    }
+  }
+}`,
+      variables: `{\n  "title": "A Primer on GraphQL Schema Design",\n  "content": "GraphQL schemas define a typed contract between client and server...",\n  "tags": ["graphql", "api", "tutorial"]\n}`
+    },
+    {
+      nameEn: "8. Create New User (Mutation)",
+      nameKh: "៨. បង្កើតគណនីអ្នកប្រើប្រាស់ (Mutation)",
+      query: `mutation CreateUser($input: CreateUserInput!) {
+  createUser(
+    username: $input.username
+    email: $input.email
+    password: $input.password
+    fullName: $input.fullName
+  ) {
+    id
+    username
+    email
+    token
+  }
+}`,
+      variables: `{\n  "input": {\n    "username": "sok_visal",\n    "email": "visal@hsam.edu.kh",\n    "password": "hashed_secure_password",\n    "fullName": "Sok Visal"\n  }\n}`
+    },
+    {
+      nameEn: "9. Get User Profile & Posts (Query)",
+      nameKh: "៩. ទាញយកព័ត៌មានអ្នកប្រើប្រាស់ និងអត្ថបទ (Query)",
+      query: `query GetUser($id: Int!) {
+  user(id: $id) {
+    id
+    username
+    email
+    fullName
+    posts {
+      id
+      title
+      content
+      status
+    }
+  }
+}`,
+      variables: `{\n  "id": 101\n}`
     }
   ];
 
@@ -328,8 +412,40 @@ export default function GraphQLDeveloperHub({
               returnBook: responsePayload
             }
           });
+        } else if (queryStr.includes('createPost')) {
+          const title = variablesObj.title || "A Primer on GraphQL Schema Design";
+          const content = variablesObj.content || "GraphQL schemas define a typed contract between client and server...";
+          const tags = variablesObj.tags || ["graphql", "api", "tutorial"];
+
+          setQueryResponse({
+            data: {
+              createPost: {
+                id: `post-${Math.floor(Math.random() * 9000 + 1000)}`,
+                title,
+                content,
+                status: "published",
+                tags: tags.map((t: string, idx: number) => ({ id: `tag-${idx}`, name: t }))
+              }
+            }
+          });
+        } else if (queryStr.includes('createUser')) {
+          const input = variablesObj.input || {};
+          const username = input.username || "sok_visal";
+          const email = input.email || "visal@hsam.edu.kh";
+          const fullName = input.fullName || "Sok Visal";
+
+          setQueryResponse({
+            data: {
+              createUser: {
+                id: Math.floor(Math.random() * 9000 + 1000),
+                username,
+                email,
+                token: "gql_session_token_jwt_" + Math.random().toString(36).substring(2, 11)
+              }
+            }
+          });
         } else {
-          throw new Error("Supported sandbox mutations: addBook(...) or returnBook(...)");
+          throw new Error("Supported sandbox mutations: addBook(...), returnBook(...), createPost(...), or createUser(...)");
         }
 
         setIsExecuting(false);
@@ -404,8 +520,79 @@ export default function GraphQLDeveloperHub({
             records: dataPayload
           }
         });
+      } else if (queryStr.includes('posts')) {
+        const limit = variablesObj.limit || 3;
+        const status = variablesObj.status || "published";
+        
+        // Return simulated posts list
+        const mockPosts = [
+          {
+            id: "post-101",
+            title: "Exploring GraphQL Resolvers",
+            content: "Resolvers are the core execution blocks of any GraphQL schema...",
+            status: status,
+            author: { id: "u-42", username: "dara_dev", fullName: "Chan Dara" },
+            comments: [
+              { id: "c-1", content: "Super clear explanation! Thanks.", author: { username: "nary_learns" } },
+              { id: "c-2", content: "Are DataLoader patterns explained too?", author: { username: "vireak_tech" } }
+            ],
+            likesCount: 24
+          },
+          {
+            id: "post-102",
+            title: "Type Safety in Modern APIs",
+            content: "Using TypeScript and GraphQL schemas together guarantees contract-driven safety...",
+            status: status,
+            author: { id: "u-99", username: "sophal_codes", fullName: "Keo Sophal" },
+            comments: [
+              { id: "c-3", content: "Yes! Solves half of our front-end bugs.", author: { username: "dara_dev" } }
+            ],
+            likesCount: 41
+          },
+          {
+            id: "post-103",
+            title: "Designing Perfect Schemas",
+            content: "Keep types small, leverage nesting, and document early.",
+            status: status,
+            author: { id: "u-42", username: "dara_dev", fullName: "Chan Dara" },
+            comments: [],
+            likesCount: 12
+          }
+        ];
+
+        setQueryResponse({
+          data: {
+            posts: mockPosts.slice(0, limit)
+          }
+        });
+      } else if (queryStr.includes('user')) {
+        const id = variablesObj.id || 101;
+        setQueryResponse({
+          data: {
+            user: {
+              id: id,
+              username: "sok_visal",
+              email: "visal@hsam.edu.kh",
+              fullName: "Sok Visal",
+              posts: [
+                {
+                  id: "post-201",
+                  title: "My First Day in School Library",
+                  content: "I borrowed three computer science books today! Looking forward to learning.",
+                  status: "published"
+                },
+                {
+                  id: "post-202",
+                  title: "GraphQL Sandbox Is Awesome",
+                  content: "Implementing schema design on real react components.",
+                  status: "published"
+                }
+              ]
+            }
+          }
+        });
       } else {
-        throw new Error("Syntax Error/Unknown Query: sandbox resolver supports query { books }, query { student(id) } or query { records }");
+        throw new Error("Syntax Error/Unknown Query: sandbox resolver supports query { books }, { student }, { records }, { posts }, or { user }");
       }
 
     } catch (err: any) {

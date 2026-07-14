@@ -494,6 +494,7 @@ export default function StudentManagement({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const keepFormOpenRef = React.useRef(false);
 
   const [qrViewStudent, setQrViewStudent] = useState<Student | null>(null);
   const [studentQrCodeUrl, setStudentQrCodeUrl] = useState<string>('');
@@ -661,6 +662,8 @@ export default function StudentManagement({
   const [phoneNumber, setPhoneNumber] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [isFormCameraOpen, setIsFormCameraOpen] = useState(false);
 
   // Filter students based on search term
   const filteredStudents = students.filter((student) => {
@@ -682,6 +685,7 @@ export default function StudentManagement({
     setPhoneNumber('');
     setEmail('');
     setPassword('');
+    setPhoto(null);
     setIsModalOpen(true);
   };
 
@@ -694,6 +698,7 @@ export default function StudentManagement({
     setPhoneNumber(student.phoneNumber);
     setEmail(student.email || '');
     setPassword(student.password || '');
+    setPhoto(student.photo || null);
     setIsModalOpen(true);
   };
 
@@ -713,7 +718,9 @@ export default function StudentManagement({
         phoneNumber,
         email: email.trim() || undefined,
         password: password.trim() || undefined,
+        photo: photo || undefined,
       });
+      setIsModalOpen(false);
     } else {
       // Auto generate Student ID depending on class count
       const classCount = students.filter((s) => s.classGrade.toUpperCase() === classGrade.toUpperCase()).length;
@@ -728,10 +735,21 @@ export default function StudentManagement({
         phoneNumber,
         email: email.trim() || undefined,
         password: password.trim() || undefined,
+        photo: photo || undefined,
       };
       onAddStudent(newStudent);
+
+      if (keepFormOpenRef.current) {
+        // Clear student name and contacts, but retain classGrade and gender for fast serial additions
+        setName('');
+        setPhoneNumber('');
+        setEmail('');
+        setPassword('');
+        setPhoto(null);
+      } else {
+        setIsModalOpen(false);
+      }
     }
-    setIsModalOpen(false);
   };
 
   return (
@@ -1975,6 +1993,77 @@ export default function StudentManagement({
                 </div>
               </div>
 
+              {/* Student Photo Selection & Camera Option */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  {language === 'kh' ? 'រូបថតសិស្ស (ម៉ាស៊ីនថត ឬ បង្ហោះរូបភាព)' : 'Student Photo (Camera or Upload)'}
+                </label>
+                <div className="flex items-center gap-4 bg-white/20 p-3 rounded-2xl border border-white/60 backdrop-blur-sm">
+                  {photo ? (
+                    <div className="relative group shrink-0">
+                      <img 
+                        src={photo} 
+                        alt="Preview" 
+                        className="w-16 h-16 rounded-xl object-cover border-2 border-blue-200 shadow-md"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPhoto(null)}
+                        className="absolute -top-1.5 -right-1.5 p-1 bg-red-500 hover:bg-red-600 text-white rounded-full transition shadow-md cursor-pointer"
+                        title={language === 'kh' ? 'លុបរូបថត' : 'Remove Photo'}
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-xl font-black border-2 border-dashed shadow-sm shrink-0 ${
+                      gender === 'M' 
+                        ? 'bg-blue-50/50 border-blue-200 text-blue-400' 
+                        : 'bg-pink-50/50 border-pink-200 text-pink-400'
+                    }`}>
+                      <Camera className="w-6 h-6" />
+                    </div>
+                  )}
+
+                  <div className="flex-1 flex flex-wrap gap-2">
+                    {/* Select Image File */}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setPhoto(reader.result as string);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="hidden"
+                      id="student-form-photo-upload"
+                    />
+                    <label
+                      htmlFor="student-form-photo-upload"
+                      className="cursor-pointer text-xs font-bold text-slate-700 bg-white hover:bg-slate-50 px-3 py-2 rounded-xl border border-slate-300 transition shadow-sm flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-slate-500" />
+                      {language === 'kh' ? 'ជ្រើសរើសរូបភាព' : 'Select Image'}
+                    </label>
+
+                    {/* Camera snapshot option */}
+                    <button
+                      type="button"
+                      onClick={() => setIsFormCameraOpen(true)}
+                      className="text-xs font-bold text-blue-700 bg-blue-50 px-3 py-2 rounded-xl border border-blue-200 hover:bg-blue-100 transition shadow-sm flex items-center gap-1.5 cursor-pointer animate-pulse"
+                    >
+                      <Camera className="w-3.5 h-3.5 text-blue-500" />
+                      {language === 'kh' ? 'ប្រើកាមេរ៉ា' : 'Use Camera'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* ID auto generation notice */}
               {!isEditMode && (
                 <div className="bg-blue-50/60 backdrop-blur rounded-xl p-3 text-xs text-blue-800 font-bold border border-white/40 flex items-center gap-2">
@@ -1995,8 +2084,19 @@ export default function StudentManagement({
                 >
                   {t.cancel}
                 </button>
+                {!isEditMode && (
+                  <button
+                    type="submit"
+                    onClick={() => { keepFormOpenRef.current = true; }}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-emerald-500/10"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    {language === 'kh' ? 'រក្សាទុក និងបន្ថែមថ្មីទៀត' : 'Save & Add New'}
+                  </button>
+                )}
                 <button
                   type="submit"
+                  onClick={() => { keepFormOpenRef.current = false; }}
                   className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer shadow-md shadow-blue-500/10"
                 >
                   <Save className="w-3.5 h-3.5" />
@@ -2038,13 +2138,21 @@ export default function StudentManagement({
                 </span>
                 
                 {/* Avatar */}
-                <div className={`w-14 h-14 rounded-full mt-4 flex items-center justify-center text-lg font-black border-2 shadow-sm ${
-                  qrViewStudent.gender === 'M' 
-                    ? 'bg-blue-100 border-blue-300 text-blue-700' 
-                    : 'bg-pink-100 border-pink-300 text-pink-700'
-                }`}>
-                  {qrViewStudent.name.charAt(0)}
-                </div>
+                {qrViewStudent.photo ? (
+                  <img 
+                    src={qrViewStudent.photo} 
+                    alt={qrViewStudent.name} 
+                    className="w-14 h-14 rounded-full mt-4 object-cover border-2 border-blue-200 shadow-sm"
+                  />
+                ) : (
+                  <div className={`w-14 h-14 rounded-full mt-4 flex items-center justify-center text-lg font-black border-2 shadow-sm ${
+                    qrViewStudent.gender === 'M' 
+                      ? 'bg-blue-100 border-blue-300 text-blue-700' 
+                      : 'bg-pink-100 border-pink-300 text-pink-700'
+                  }`}>
+                    {qrViewStudent.name.charAt(0)}
+                  </div>
+                )}
 
                 <h4 className="mt-2.5 font-extrabold text-slate-800 text-base">{qrViewStudent.name}</h4>
                 <p className="text-[11px] font-bold text-slate-500 mt-0.5">
@@ -2228,6 +2336,36 @@ export default function StudentManagement({
           );
         })()}
       </AnimatePresence>
+
+      {photoTargetStudent && (
+        <StudentCameraPhoto
+          studentName={photoTargetStudent.name}
+          language={language}
+          onSave={(photoBase64) => {
+            onUpdateStudent({
+              ...photoTargetStudent,
+              photo: photoBase64
+            });
+            setPhotoTargetStudent(null);
+            if (onShowSuccess) {
+              onShowSuccess(language === 'kh' ? 'បានរក្សាទុករូបថតសិស្សដោយជោគជ័យ!' : 'Successfully saved student photo!');
+            }
+          }}
+          onClose={() => setPhotoTargetStudent(null)}
+        />
+      )}
+
+      {isFormCameraOpen && (
+        <StudentCameraPhoto
+          studentName={name || (language === 'kh' ? 'សិស្សថ្មី' : 'New Student')}
+          language={language}
+          onSave={(photoBase64) => {
+            setPhoto(photoBase64);
+            setIsFormCameraOpen(false);
+          }}
+          onClose={() => setIsFormCameraOpen(false)}
+        />
+      )}
     </div>
   );
 }

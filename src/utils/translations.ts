@@ -1,7 +1,7 @@
 export const translations = {
   en: {
-    appName: "Hun Sen Andoung Meas High School Library",
-    schoolName: "Hun Sen Andoung Meas High School",
+    appName: "New Era Khmer High School Library",
+    schoolName: "New Era Khmer High School",
     tagline: "Library Management System",
     loginTitle: "Librarian Portal Login",
     username: "Username",
@@ -98,8 +98,8 @@ export const translations = {
     installationSteps: "XAMPP Local Server Installation Steps",
   },
   kh: {
-    appName: "បណ្ណាល័យវិទ្យាល័យ ហ៊ុន សែន អណ្ដូងមាស",
-    schoolName: "វិទ្យាល័យ ហ៊ុន សែន អណ្ដូងមាស",
+    appName: "បណ្ណាល័យវិទ្យាល័យខ្មែរសករាជថ្មី",
+    schoolName: "វិទ្យាល័យខ្មែរសករាជថ្មី",
     tagline: "ប្រព័ន្ធគ្រប់គ្រងបណ្ណាល័យសាលា",
     loginTitle: "ចូលប្រព័ន្ធគ្រប់គ្រងបណ្ណាល័យ",
     username: "ឈ្មោះអ្នកប្រើប្រាស់",

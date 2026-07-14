@@ -216,9 +216,11 @@ export default function App() {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [showGlobalSearchResults, setShowGlobalSearchResults] = useState(false);
   const [selectedSearchBook, setSelectedSearchBook] = useState<Book | null>(null);
+  const [activeZoomedImage, setActiveZoomedImage] = useState<string | null>(null);
 
   // MySQL check, loader and Auto Save system
-  const [isMysqlConnected, setIsMysqlConnected] = useState(true); // Default to true to enable writing to queue immediately
+  const [isMysqlDbConnected, setIsMysqlDbConnected] = useState(true);
+  const isMysqlConnected = true; // Constantly true to ensure handlers always queue mutations to localStorage
   const [mysqlError, setMysqlError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<'saving' | 'saved' | 'offline' | 'syncing' | 'idle'>('saved');
   const [unsavedQueue, setUnsavedQueue] = useState<any[]>(() => {
@@ -344,65 +346,62 @@ export default function App() {
     try {
       const res = await fetch('/api/mysql-status');
       const data = await res.json();
-      if (data.connected) {
-        setIsMysqlConnected(true);
-        setDbLoading(true);
-        try {
-          const [catsRes, booksRes, studentsRes, recordsRes, wishlistRes, rolesRes, usersRes] = await Promise.all([
-            fetch('/api/categories').then(r => r.json()),
-            fetch('/api/books').then(r => r.json()),
-            fetch('/api/students').then(r => r.json()),
-            fetch('/api/records').then(r => r.json()),
-            fetch('/api/wishlist').then(r => r.json()),
-            fetch('/api/roles').then(r => r.json()),
-            fetch('/api/users').then(r => r.json()),
-          ]);
+      
+      // If the backend API server is reachable, it means we can connect and sync mutations!
+      // The backend may be using MySQL or saving into offline_db.json fallback.
+      setIsMysqlDbConnected(data.connected);
+      setDbLoading(true);
+      setMysqlError(data.connected ? null : (data.error || "Running in offline database mode"));
+      
+      try {
+        const [catsRes, booksRes, studentsRes, recordsRes, wishlistRes, rolesRes, usersRes] = await Promise.all([
+          fetch('/api/categories').then(r => r.json()),
+          fetch('/api/books').then(r => r.json()),
+          fetch('/api/students').then(r => r.json()),
+          fetch('/api/records').then(r => r.json()),
+          fetch('/api/wishlist').then(r => r.json()),
+          fetch('/api/roles').then(r => r.json()),
+          fetch('/api/users').then(r => r.json()),
+        ]);
 
-          // Fetch local pending mutations to overlay on top of database snapshot
-          const pending = JSON.parse(localStorage.getItem('library_unsaved_changes') || '[]');
-          
-          const applyMutations = (dbList: any[], entity: string) => {
-            let list = Array.isArray(dbList) ? [...dbList] : [];
-            pending.forEach((m: any) => {
-              if (m.entity === entity) {
-                if (m.action === 'create') {
-                  list = [m.data, ...list.filter(item => item.id !== m.data.id)];
-                } else if (m.action === 'update') {
-                  list = list.map(item => item.id === m.data.id ? m.data : item);
-                  if (!list.some(item => item.id === m.data.id)) {
-                    list.push(m.data);
-                  }
-                } else if (m.action === 'delete') {
-                  const idToDelete = m.data?.id || m.data;
-                  list = list.filter(item => item.id !== idToDelete);
+        // Fetch local pending mutations to overlay on top of database snapshot
+        const pending = JSON.parse(localStorage.getItem('library_unsaved_changes') || '[]');
+        
+        const applyMutations = (dbList: any[], entity: string) => {
+          let list = Array.isArray(dbList) ? [...dbList] : [];
+          pending.forEach((m: any) => {
+            if (m.entity === entity) {
+              if (m.action === 'create') {
+                list = [m.data, ...list.filter(item => item.id !== m.data.id)];
+              } else if (m.action === 'update') {
+                list = list.map(item => item.id === m.data.id ? m.data : item);
+                if (!list.some(item => item.id === m.data.id)) {
+                  list.push(m.data);
                 }
+              } else if (m.action === 'delete') {
+                const idToDelete = m.data?.id || m.data;
+                list = list.filter(item => item.id !== idToDelete);
               }
-            });
-            return list;
-          };
+            }
+          });
+          return list;
+        };
 
-          setCategories(applyMutations(catsRes, 'categories'));
-          setBooks(applyMutations(booksRes, 'books'));
-          setStudents(applyMutations(studentsRes, 'students'));
-          setRecords(applyMutations(recordsRes, 'records'));
-          setWishlist(applyMutations(wishlistRes, 'wishlist'));
-          setRoles(applyMutations(rolesRes, 'roles'));
-          setUsers(applyMutations(usersRes, 'users'));
-          setMysqlError(null);
-        } catch (err) {
-          console.error("Failed to load MySQL data, utilizing offline fallbacks.", err);
-          loadLocalStorageFallbacks();
-        } finally {
-          setDbLoading(false);
-        }
-      } else {
-        setIsMysqlConnected(false); // Utilise offline fallback or Firebase when MySQL is not connected
-        setSyncStatus('offline');
-        setMysqlError(data.error);
+        setCategories(applyMutations(catsRes, 'categories'));
+        setBooks(applyMutations(booksRes, 'books'));
+        setStudents(applyMutations(studentsRes, 'students'));
+        setRecords(applyMutations(recordsRes, 'records'));
+        setWishlist(applyMutations(wishlistRes, 'wishlist'));
+        setRoles(applyMutations(rolesRes, 'roles'));
+        setUsers(applyMutations(usersRes, 'users'));
+      } catch (err) {
+        console.error("Failed to load MySQL data, utilizing offline fallbacks.", err);
         loadLocalStorageFallbacks();
+      } finally {
+        setDbLoading(false);
       }
     } catch (err: any) {
-      setIsMysqlConnected(false);
+      setIsMysqlDbConnected(false);
       setSyncStatus('offline');
       setMysqlError(err.message || 'Failed to contact database status API');
       loadLocalStorageFallbacks();
@@ -1292,6 +1291,8 @@ School Librarian`;
             initialSearchTerm={bookSearchTerm}
             onClearSearch={() => setBookSearchTerm('')}
             currentUser={currentUser}
+            onShowSuccess={showSuccess}
+            onShowError={showError}
           />
         );
       case 'students':
@@ -1340,7 +1341,7 @@ School Librarian`;
         return (
           <DeploymentCenter
             language={language}
-            isMysqlConnected={isMysqlConnected}
+            isMysqlConnected={isMysqlDbConnected}
             mysqlError={mysqlError}
             onRefreshConnection={loadMysqlData}
             categories={categories}
@@ -2081,6 +2082,30 @@ School Librarian`;
                 <span className="font-bold text-slate-900 dark:text-white">{selectedSearchBook.barcode}</span>
               </div>
 
+              {/* Additional images gallery */}
+              {selectedSearchBook.images && selectedSearchBook.images.length > 0 && (
+                <div className="space-y-2 text-left">
+                  <h5 className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    {language === 'kh' ? 'រូបភាពបន្ថែមនៃសៀវភៅ' : 'Additional Book Photos'}
+                  </h5>
+                  <div className="flex gap-2 overflow-x-auto py-1 scrollbar-thin">
+                    {selectedSearchBook.images.map((img, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setActiveZoomedImage(img)}
+                        className="relative w-14 h-18 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0 hover:scale-105 hover:shadow transition active:scale-95 cursor-zoom-in"
+                      >
+                        <img
+                          src={img}
+                          alt={`Book photo ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Active Borrower info if borrowed */}
               {selectedSearchBook.status !== 'available' && activeBookRecord && activeBookBorrower ? (
                 <div className="p-4 bg-blue-50 dark:bg-slate-800 rounded-2xl border border-blue-100/30 dark:border-slate-700 space-y-2.5">
@@ -2170,6 +2195,28 @@ School Librarian`;
           </div>
         </div>
       )}
+
+      {activeZoomedImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4 cursor-zoom-out animate-fade-in"
+          onClick={() => setActiveZoomedImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[85vh] overflow-hidden rounded-3xl border border-white/20 shadow-2xl bg-black">
+            <img 
+              src={activeZoomedImage} 
+              alt="Zoomed preview" 
+              className="max-w-full max-h-[80vh] object-contain"
+            />
+            <button
+              onClick={() => setActiveZoomedImage(null)}
+              className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 hover:text-red-400 text-white rounded-full border border-white/10 transition cursor-pointer"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <footer className="fixed bottom-4 left-0 right-0 text-center text-xs text-white/70">
         ធ្វើឡើងដោយ និស្សិត ឈ្មោះ សម្បត្តិ ឈុនហ៊ាង
       </footer>
