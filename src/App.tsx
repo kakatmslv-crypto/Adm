@@ -4,6 +4,7 @@ import { defaultCategories, defaultBooks, defaultStudents, defaultBorrowRecords,
 import { translations } from './utils/translations';
 import { motion, AnimatePresence } from 'motion/react';
 import schoolLogo from './assets/images/school_logo_1783221279657.jpg';
+import { Analytics } from '@vercel/analytics/react';
 
 
 // Components
@@ -848,7 +849,7 @@ School Librarian`;
     setWishlist(prev => [newItem, ...prev]);
     showSuccess(
       language === 'kh' 
-        ? `បានបន្ថែមទៅបញ្ជីចង់បានសៀវភៅ "${newItem.title}" ដោយជោគជ័យ!` 
+        ? `បានបន្ថែមទៅបញ្ជីចង់បានសៀវភៅ "${newItem.title}" ��ោយជោគជ័យ!` 
         : `Added "${newItem.title}" to wishlist successfully!`
     );
     if (isMysqlConnected) {
@@ -2173,6 +2174,7 @@ School Librarian`;
       <footer className="fixed bottom-4 left-0 right-0 text-center text-xs text-white/70">
         ធ្វើឡើងដោយ និស្សិត ឈ្មោះ សម្បត្តិ ឈុនហ៊ាង
       </footer>
+      <Analytics />
     </div>
   );
 }
